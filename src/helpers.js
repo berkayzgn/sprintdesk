@@ -3,6 +3,15 @@
 // ============================================================
 import { PEOPLE, LABELS } from './data.js';
 
+/** HTML özel karakterlerini güvenli hale getirir (XSS / kırık markup önleme) */
+export function escHtml(str) {
+  return (str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 export function dueStyleStr(due) {
   if (!due) return '';
   if (due.state === 'over')  return 'background:rgba(244,63,94,.15);color:#e0556b';

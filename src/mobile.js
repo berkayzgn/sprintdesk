@@ -62,7 +62,7 @@ export function renderMobile(container) {
   const addBtn = container.querySelector('#mob-add-btn');
   addBtn?.addEventListener('click', () => {
     const l = s.lists[s.mobileIndex];
-    if (l) setState({ addingCardFor: l.id, newCardTitle: '' });
+    if (l) setState({ addingCardFor: l.id });
   });
 
   // Mobile tabs
