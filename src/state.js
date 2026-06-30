@@ -1,14 +1,12 @@
 // ============================================================
 // STATE — Merkezi reaktif state yönetimi
 // ============================================================
-import { initialLists } from './data.js';
+import { initialLists, BOARDS as DEFAULT_BOARDS } from './data.js';
 
 const listeners = new Set();
 
-// ---- Kalıcı depolama (AsyncStorage benzeri, localStorage tabanlı) ----
 const STORAGE_KEY = 'flowdesk.state.v1';
-// Sadece kalıcı olması gereken alanlar (geçici UI state hariç)
-const PERSIST_KEYS = ['theme', 'sideExpanded', 'lists'];
+const PERSIST_KEYS = ['theme', 'sideExpanded', 'listsByBoard', 'boards', 'activeBoardId'];
 
 function loadPersisted() {
   try {
@@ -26,12 +24,20 @@ function savePersisted(s) {
     const data = {};
     for (const k of PERSIST_KEYS) data[k] = s[k];
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch {
-    /* depolama erişilemezse sessizce geç */
-  }
+  } catch { /* sessiz geç */ }
 }
 
 const persisted = loadPersisted();
+
+const defaultBoards = DEFAULT_BOARDS.map((b, i) => ({ ...b, id: 'b' + i }));
+
+// Eski şema göçü: tek global `lists` → board-başına `listsByBoard`
+let initialListsByBoard = persisted.listsByBoard;
+if (!initialListsByBoard) {
+  initialListsByBoard = {
+    b0: persisted.lists || initialLists(),  // ilk board demo verisini alır
+  };
+}
 
 export const state = {
   theme: 'light',
@@ -43,21 +49,41 @@ export const state = {
   mobileIndex: 0,
   openCardId: null,
   search: '',
-  addingCardFor: null,
-  newCardTitle: '',
-  addingList: false,
-  newListTitle: '',
+  // UI-mod bayrakları (metin değerleri DOM'da tutulur, state'te değil — focus korunur)
+  addingCardFor: null,    // hangi listeye kart ekleniyor
+  addingList: false,      // yeni liste formu açık mı
+  editingBoardId: null,   // sidebar inline board düzenleme
+  editingListId: null,    // board içi liste adı düzenleme
   drag: null,
   over: null,
-  newChecklistText: '',
-  newCommentText: '',
-  lists: initialLists(),
+  newBoardModal: false,
+  profileOpen: false,
+  boards: defaultBoards,
+  activeBoardId: 'b0',
   ...persisted,
+  // listsByBoard'u her zaman göç edilmiş değerle ezelim (persisted.lists eski olabilir)
+  listsByBoard: initialListsByBoard,
 };
+
+/** Aktif board nesnesini döndürür */
+export function getActiveBoard() {
+  return (state.boards || []).find(b => b.id === state.activeBoardId) || state.boards[0] || null;
+}
+
+/** Aktif board'un listelerini döndürür (yoksa boş dizi) */
+export function getActiveLists() {
+  return state.listsByBoard[state.activeBoardId] || [];
+}
+
+/** Aktif board'un listelerini günceller */
+export function setActiveLists(lists) {
+  setState({
+    listsByBoard: { ...state.listsByBoard, [state.activeBoardId]: lists },
+  });
+}
 
 export function setState(partial) {
   Object.assign(state, partial);
-  // Kalıcı alanlardan biri değiştiyse depolamaya yaz
   if (PERSIST_KEYS.some(k => k in partial)) savePersisted(state);
   listeners.forEach(fn => fn(state));
 }
@@ -67,24 +93,24 @@ export function subscribe(fn) {
   return () => listeners.delete(fn);
 }
 
-// ---- Yardımcı mutasyonlar ----
+// ---- Yardımcı mutasyonlar (aktif board üzerinde çalışır) ----
 
 export function updateCard(id, updater) {
-  const lists = state.lists.map(l => ({
+  const lists = getActiveLists().map(l => ({
     ...l,
     cards: l.cards.map(c => {
       if (c.id !== id) return c;
       return typeof updater === 'function' ? updater(c) : { ...c, ...updater };
     }),
   }));
-  setState({ lists });
+  setActiveLists(lists);
 }
 
 export function commitDrop() {
   const { drag, over } = state;
   if (!drag || !over) { setState({ drag: null, over: null }); return; }
 
-  let lists = state.lists.map(l => ({ ...l, cards: [...l.cards] }));
+  let lists = getActiveLists().map(l => ({ ...l, cards: [...l.cards] }));
   let card = null;
   for (const l of lists) {
     const i = l.cards.findIndex(c => c.id === drag.cardId);
@@ -100,5 +126,8 @@ export function commitDrop() {
     : tl.cards.length;
   if (idx < 0) idx = tl.cards.length;
   tl.cards.splice(idx, 0, card);
-  setState({ lists, drag: null, over: null });
+  setState({
+    listsByBoard: { ...state.listsByBoard, [state.activeBoardId]: lists },
+    drag: null, over: null,
+  });
 }

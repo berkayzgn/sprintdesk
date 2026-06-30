@@ -6,7 +6,7 @@ import { state, setState, subscribe } from './state.js';
 import { applyTheme } from './theme.js';
 import { renderSidebar } from './sidebar.js';
 import { renderBoard }   from './board.js';
-import { renderModal }   from './modal.js';
+import { renderModal, renderNewBoardModal, renderProfileModal } from './modal.js';
 
 // ---- Root DOM ----
 const app = document.getElementById('app');
@@ -36,6 +36,8 @@ app.innerHTML = `
         <div id="board-area" class="hidden"></div>
       </main>
       <div id="modal-slot"></div>
+      <div id="new-board-modal-slot"></div>
+      <div id="profile-modal-slot"></div>
     </div>
   </div>
 `;
@@ -43,7 +45,9 @@ app.innerHTML = `
 // ---- Element refs ----
 const sidebarSlot  = app.querySelector('#sidebar-slot');
 const mainEl       = app.querySelector('#main');
-const modalSlot    = app.querySelector('#modal-slot');
+const modalSlot           = app.querySelector('#modal-slot');
+const newBoardModalSlot   = app.querySelector('#new-board-modal-slot');
+const profileModalSlot    = app.querySelector('#profile-modal-slot');
 const contentEl    = app.querySelector('#content');
 
 // ---- Dock buttons ----
@@ -69,6 +73,8 @@ function render(s) {
   renderSidebar(sidebarSlot);
   renderBoard(mainEl);
   renderModal(modalSlot);
+  renderNewBoardModal(newBoardModalSlot);
+  renderProfileModal(profileModalSlot);
 }
 
 // ---- Subscribe ----
