@@ -4,29 +4,55 @@
 import { state, setState, updateCard, getActiveLists } from './state.js';
 import { findRawCard, getOpenCardView, escHtml, ICONS } from './helpers.js';
 
+const FILE_ICON = `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>`;
+
+/** Dosya adından uzantıyı (kısa) döndürür */
+function fileExt(name) {
+  const m = /\.([a-z0-9]+)$/i.exec(name || '');
+  return m ? m[1].toUpperCase().slice(0, 4) : 'DOSYA';
+}
+
 let fileInput = null;
 
 function ensureFileInput() {
   if (fileInput) return;
   fileInput = document.createElement('input');
   fileInput.type = 'file';
-  fileInput.accept = 'image/*';
+  // Her dosya türüne izin ver (görsel veya değil)
+  fileInput.multiple = true;
   fileInput.style.display = 'none';
   document.body.appendChild(fileInput);
   fileInput.addEventListener('change', e => {
-    const f = e.target.files && e.target.files[0];
-    if (!f || !state.openCardId) return;
-    const r = new FileReader();
+    const files = Array.from(e.target.files || []);
+    if (!files.length || !state.openCardId) return;
     const id = state.openCardId;
-    r.onload = () => {
-      updateCard(id, c => ({
-        ...c,
-        attachments: [...(c.attachments || []), { id: 'a' + Date.now(), type: 'image', url: r.result, name: f.name }],
-      }));
-    };
-    r.readAsDataURL(f);
+    files.forEach(f => {
+      const r = new FileReader();
+      r.onload = () => {
+        const isImage = (f.type || '').startsWith('image/');
+        updateCard(id, c => ({
+          ...c,
+          attachments: [...(c.attachments || []), {
+            id: 'a' + Date.now() + Math.random().toString(36).slice(2, 6),
+            type: isImage ? 'image' : 'file',
+            url: r.result,
+            name: f.name,
+            size: f.size,
+          }],
+        }));
+      };
+      r.readAsDataURL(f);
+    });
     e.target.value = '';
   });
+}
+
+/** Dosya boyutunu okunur biçime çevirir */
+function fmtSize(bytes) {
+  if (!bytes && bytes !== 0) return '';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
 export function renderModal(container) {
@@ -111,14 +137,21 @@ export function renderModal(container) {
               <div class="attachments-grid" id="attachments-grid">
                 ${cv.attachments.map(att => `
                   <div class="attachment-thumb">
-                    <div class="thumb-img"><img src="${att.url}" alt="${escHtml(att.name)}"></div>
-                    <div class="attachment-name">${escHtml(att.name)}</div>
+                    <div class="thumb-img">
+                      ${att.type === 'image'
+                        ? `<img src="${att.url}" alt="${escHtml(att.name)}">`
+                        : `<a class="file-thumb" href="${att.url}" download="${escHtml(att.name)}" title="${escHtml(att.name)}">
+                             ${FILE_ICON}
+                             <span class="file-ext">${escHtml(fileExt(att.name))}</span>
+                           </a>`}
+                    </div>
+                    <div class="attachment-name">${escHtml(att.name)}${att.size ? `<span class="attach-size"> · ${fmtSize(att.size)}</span>` : ''}</div>
                     <button class="remove-attach-btn" data-att-id="${att.id}">${ICONS.x}</button>
                   </div>
                 `).join('')}
                 <button class="upload-btn" id="upload-btn">
-                  ${ICONS.image}
-                  Görsel Ekle
+                  ${ICONS.attach}
+                  Dosya Ekle
                 </button>
               </div>
             </div>
@@ -261,7 +294,7 @@ export function renderModal(container) {
 }
 
 // ---- New Board Modal ----
-const BOARD_COLORS = ['#6c5ecf', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#3b82f6'];
+const BOARD_COLORS = ['#360185', '#FBC02D', '#10CAB9', '#FE6ABF'];
 
 const ALL_MEMBERS = [
   { id: 'ay', initials: 'AY', name: 'Ayşe Yılmaz',   color: '#6366f1' },
@@ -319,7 +352,7 @@ export function renderNewBoardModal(container) {
 
         <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:4px">
           <button id="nb-cancel" style="padding:8px 18px;border-radius:8px;border:1.5px solid var(--border,#e2e6f0);background:none;cursor:pointer;font-size:13px;font-weight:600;color:var(--text,#1a1d2e)">İptal</button>
-          <button id="nb-create" style="padding:8px 18px;border-radius:8px;border:none;background:#6c5ecf;color:#fff;cursor:pointer;font-size:13px;font-weight:600">Oluştur</button>
+          <button id="nb-create" style="padding:8px 18px;border-radius:8px;border:none;background:#360185;color:#fff;cursor:pointer;font-size:13px;font-weight:600">Oluştur</button>
         </div>
       </div>
     </div>
@@ -351,7 +384,7 @@ export function renderNewBoardModal(container) {
         btn.style.background = 'var(--chip-bg,#f2f3f8)';
       } else {
         selectedMembers.add(id);
-        btn.style.border = '2px solid #6c5ecf';
+        btn.style.border = '2px solid #360185';
         btn.style.background = 'var(--accent-soft,#eef0fe)';
       }
     });
@@ -404,15 +437,15 @@ export function renderProfileModal(container) {
           <!-- Avatar + isim -->
           <div style="display:flex;align-items:center;gap:18px;padding:20px;background:var(--board-bg,#f4f5fb);border-radius:12px">
             <div style="position:relative;flex:0 0 auto">
-              <span style="width:72px;height:72px;border-radius:50%;background:#6c5ecf;color:#fff;font-size:24px;font-weight:700;display:flex;align-items:center;justify-content:center">AY</span>
-              <button style="position:absolute;bottom:0;right:0;width:24px;height:24px;border-radius:50%;background:#6c5ecf;border:2px solid var(--card-bg,#fff);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">
+              <span style="width:72px;height:72px;border-radius:50%;background:#360185;color:#fff;font-size:24px;font-weight:700;display:flex;align-items:center;justify-content:center">AY</span>
+              <button style="position:absolute;bottom:0;right:0;width:24px;height:24px;border-radius:50%;background:#360185;border:2px solid var(--card-bg,#fff);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
               </button>
             </div>
             <div>
               <div style="font-size:20px;font-weight:700;color:var(--text,#1a1d2e)">Ayşe Yılmaz</div>
               <div style="font-size:13px;color:var(--text-secondary,#888);margin-top:2px">ayse@acmestudio.io</div>
-              <span style="display:inline-block;margin-top:6px;font-size:11px;font-weight:700;color:#6c5ecf;background:#eef0fe;padding:3px 10px;border-radius:20px">Premium Plan</span>
+              <span style="display:inline-block;margin-top:6px;font-size:11px;font-weight:700;color:#360185;background:#eef0fe;padding:3px 10px;border-radius:20px">Premium Plan</span>
             </div>
           </div>
 
@@ -420,8 +453,8 @@ export function renderProfileModal(container) {
           <div style="${SECTION}">
             <div style="font-size:14px;font-weight:700;color:var(--text,#1a1d2e);margin-bottom:2px">E-posta Adresi</div>
             <label style="${LABEL}">Mevcut e-posta</label>
-            <input id="prof-email" value="ayse@acmestudio.io" style="${INP}">
-            <button id="prof-save-email" style="align-self:flex-end;padding:7px 16px;border-radius:8px;border:none;background:#6c5ecf;color:#fff;cursor:pointer;font-size:13px;font-weight:600;margin-top:2px">Güncelle</button>
+            <input id="prof-email" value="${escHtml(state.userEmail || '')}" style="${INP}">
+            <button id="prof-save-email" style="align-self:flex-end;padding:7px 16px;border-radius:8px;border:none;background:#360185;color:#fff;cursor:pointer;font-size:13px;font-weight:600;margin-top:2px">Güncelle</button>
           </div>
 
           ${DIVIDER}
@@ -436,7 +469,7 @@ export function renderProfileModal(container) {
             <label style="${LABEL};margin-top:8px">Yeni şifre (tekrar)</label>
             <input id="prof-pw-confirm" type="password" placeholder="••••••••" style="${INP}">
             <div id="prof-pw-msg" style="font-size:12px;min-height:16px;margin-top:2px"></div>
-            <button id="prof-save-pw" style="align-self:flex-end;padding:7px 16px;border-radius:8px;border:none;background:#6c5ecf;color:#fff;cursor:pointer;font-size:13px;font-weight:600">Şifreyi Güncelle</button>
+            <button id="prof-save-pw" style="align-self:flex-end;padding:7px 16px;border-radius:8px;border:none;background:#360185;color:#fff;cursor:pointer;font-size:13px;font-weight:600">Şifreyi Güncelle</button>
           </div>
 
           ${DIVIDER}
@@ -471,10 +504,11 @@ export function renderProfileModal(container) {
   container.querySelector('#prof-save-email').addEventListener('click', () => {
     const v = container.querySelector('#prof-email').value.trim();
     if (!v || !v.includes('@')) return;
+    state.userEmail = v;  // re-render tetiklemeden kaydet (modal açık kalsın)
     const btn = container.querySelector('#prof-save-email');
     btn.textContent = 'Kaydedildi ✓';
     btn.style.background = '#10b981';
-    setTimeout(() => { btn.textContent = 'Güncelle'; btn.style.background = '#6c5ecf'; }, 2000);
+    setTimeout(() => { btn.textContent = 'Güncelle'; btn.style.background = '#360185'; }, 2000);
   });
 
   // Şifre güncelle
@@ -501,8 +535,9 @@ export function renderProfileModal(container) {
     setTimeout(() => { btn.textContent = 'Gönder'; btn.style.color = ''; btn.style.borderColor = ''; }, 3000);
   });
 
-  // Çıkış
+  // Çıkış — login ekranına dön
   container.querySelector('#prof-logout').addEventListener('click', () => {
-    close();
+    container.innerHTML = '';
+    setState({ profileOpen: false, authed: false });
   });
 }

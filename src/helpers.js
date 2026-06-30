@@ -31,6 +31,7 @@ export function getCardView(c, listId, drag, over) {
 
   return {
     id: c.id, title: c.title, listId,
+    color: c.color || null,
     labels, assignees, hasLabels: labels.length > 0,
     hasDesc: !!(c.desc && c.desc.trim()),
     hasChecklist: total > 0,
