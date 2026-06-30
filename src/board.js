@@ -58,7 +58,6 @@ function renderTopbar(topbar) {
           ${ICONS.search}
           <input id="search-input" placeholder="Kart ara…" value="${escHtml(state.search)}">
         </div>
-        <button class="filter-btn" title="Filtrele">${ICONS.filter}</button>
         <button class="invite-btn">${ICONS.invite} Davet Et</button>
       </div>
     `;
@@ -126,7 +125,11 @@ function renderBoardArea(boardEl) {
   getActiveLists().forEach(list => {
     const cards = list.cards
       .filter(c => !q || c.title.toLowerCase().includes(q) || (c.desc || '').toLowerCase().includes(q))
-      .map(c => getCardView(c, list.id, state.drag, state.over));
+      .map(c => {
+        const v = getCardView(c, list.id, state.drag, state.over);
+        v.editing = state.editingCardId === c.id;
+        return v;
+      });
 
     const isAddingCard = state.addingCardFor === list.id;
     const showEndIndicator = !!(state.drag && state.over && state.over.listId === list.id && !state.over.beforeCardId);
@@ -223,18 +226,21 @@ function buildCardHTML(card) {
       ${assigneesHTML}
     </div>` : '';
 
+  const colorStrip = card.color ? `<div class="card-color-strip" style="background:${card.color}"></div>` : '';
+  const titleHTML = card.editing
+    ? `<input class="card-title-input" value="${escHtml(card.title)}">`
+    : `<div class="card-title">${escHtml(card.title)}</div>`;
+
   return `
-    <div class="card ${card.dragging ? 'dragging' : ''}" draggable="true" data-card-id="${card.id}" data-list-id="${card.listId}">
+    <div class="card ${card.dragging ? 'dragging' : ''}" draggable="${card.editing ? 'false' : 'true'}" data-card-id="${card.id}" data-list-id="${card.listId}">
       ${card.showIndicator ? '<div class="drop-indicator"></div>' : ''}
+      ${colorStrip}
       ${coverHTML}
       <div class="card-body">
         ${labelsHTML}
         <div class="card-title-row">
-          <div class="card-title">${escHtml(card.title)}</div>
-          <div class="card-quick-actions">
-            <button class="card-qa-btn card-edit-btn" title="Düzenle">${EDIT_ICON}</button>
-            <button class="card-qa-btn card-delete-btn" title="Sil">${TRASH_ICON}</button>
-          </div>
+          ${titleHTML}
+          <button class="card-qa-btn card-menu-btn" title="Kart menüsü">${ICONS.dots}</button>
         </div>
         ${metaHTML}
       </div>
@@ -309,20 +315,36 @@ function attachListHeaderEvents(section, list, isEditingList) {
 function attachCardEvents(section, list) {
   section.querySelectorAll('.card').forEach(cardEl => {
     const cardId = cardEl.dataset.cardId;
+    const isEditing = state.editingCardId === cardId;
+
+    // Inline isim düzenleme
+    if (isEditing) {
+      const inp = cardEl.querySelector('.card-title-input');
+      inp?.focus();
+      inp?.select();
+      const commit = () => {
+        const name = (inp.value || '').trim();
+        if (name) renameCard(cardId, name);
+        else setState({ editingCardId: null });
+      };
+      inp?.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); commit(); }
+        if (e.key === 'Escape') setState({ editingCardId: null });
+      });
+      inp?.addEventListener('blur', commit);
+      inp?.addEventListener('click', e => e.stopPropagation());
+      return; // düzenleme modunda diğer event'leri bağlama
+    }
 
     cardEl.addEventListener('click', e => {
       if (e.target.closest('.card-qa-btn')) return;
       setState({ openCardId: cardId, mobileMenuOpen: false });
     });
 
-    cardEl.querySelector('.card-edit-btn')?.addEventListener('click', e => {
+    // 3-nokta menüsü: isim değiştir / renk / sil
+    cardEl.querySelector('.card-menu-btn')?.addEventListener('click', e => {
       e.stopPropagation();
-      setState({ openCardId: cardId });
-    });
-
-    cardEl.querySelector('.card-delete-btn')?.addEventListener('click', e => {
-      e.stopPropagation();
-      deleteCard(cardId);
+      openCardMenu(e.currentTarget, cardId);
     });
 
     cardEl.addEventListener('dragstart', e => {
@@ -370,6 +392,70 @@ function attachFooterEvents(section, list, isAddingCard) {
 // ---- Mutasyonlar ----
 function deleteCard(cardId) {
   setActiveLists(getActiveLists().map(l => ({ ...l, cards: l.cards.filter(c => c.id !== cardId) })));
+}
+
+function renameCard(cardId, title) {
+  setActiveLists(getActiveLists().map(l => ({
+    ...l,
+    cards: l.cards.map(c => c.id === cardId ? { ...c, title } : c),
+  })));
+  setState({ editingCardId: null });
+}
+
+function setCardColor(cardId, color) {
+  setActiveLists(getActiveLists().map(l => ({
+    ...l,
+    cards: l.cards.map(c => c.id === cardId ? { ...c, color } : c),
+  })));
+}
+
+// Kart "..." menüsü — transient popover (isim değiştir / renk / sil)
+const CARD_COLORS = ['#360185', '#FBC02D', '#10CAB9', '#FE6ABF'];
+
+function openCardMenu(btn, cardId) {
+  const existing = document.querySelector('.list-menu-popover');
+  const wasForThis = existing && existing.dataset.cardId === cardId;
+  existing?.remove();
+  if (wasForThis) return;
+
+  const menu = document.createElement('div');
+  menu.className = 'list-menu-popover';
+  menu.dataset.cardId = cardId;
+  menu.innerHTML = `
+    <button class="list-menu-item" data-act="rename">${EDIT_ICON} İsmi Değiştir</button>
+    <div class="card-color-row">
+      ${CARD_COLORS.map(c => `<button class="card-color-swatch" data-color="${c}" style="background:${c}" title="Renk"></button>`).join('')}
+      <button class="card-color-swatch none" data-color="" title="Renksiz">${ICONS.x}</button>
+    </div>
+    <button class="list-menu-item danger" data-act="delete">${TRASH_ICON} Kartı Sil</button>
+  `;
+  document.body.appendChild(menu);
+
+  const r = btn.getBoundingClientRect();
+  menu.style.top = `${r.bottom + 6}px`;
+  menu.style.left = `${Math.min(r.left, window.innerWidth - 200)}px`;
+
+  menu.querySelector('[data-act="rename"]').addEventListener('click', () => {
+    menu.remove();
+    setState({ editingCardId: cardId });
+  });
+  menu.querySelector('[data-act="delete"]').addEventListener('click', () => {
+    menu.remove();
+    deleteCard(cardId);
+  });
+  menu.querySelectorAll('.card-color-swatch').forEach(sw => {
+    sw.addEventListener('click', () => {
+      menu.remove();
+      setCardColor(cardId, sw.dataset.color || null);
+    });
+  });
+
+  setTimeout(() => {
+    const closeMenu = ev => {
+      if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener('click', closeMenu); }
+    };
+    document.addEventListener('click', closeMenu);
+  }, 0);
 }
 
 function renameList(listId, name) {

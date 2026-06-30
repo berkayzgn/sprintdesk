@@ -7,6 +7,7 @@ import { applyTheme } from './theme.js';
 import { renderSidebar } from './sidebar.js';
 import { renderBoard }   from './board.js';
 import { renderModal, renderNewBoardModal, renderProfileModal } from './modal.js';
+import { renderLogin } from './login.js';
 
 // ---- Root DOM ----
 const app = document.getElementById('app');
@@ -25,6 +26,9 @@ app.innerHTML = `
       </div>
     </div>
   </div>
+
+  <!-- LOGIN (auth değilse gösterilir) -->
+  <div id="login-slot" class="hidden"></div>
 
   <!-- CONTENT -->
   <div id="content">
@@ -48,6 +52,8 @@ const mainEl       = app.querySelector('#main');
 const modalSlot           = app.querySelector('#modal-slot');
 const newBoardModalSlot   = app.querySelector('#new-board-modal-slot');
 const profileModalSlot    = app.querySelector('#profile-modal-slot');
+const loginSlot    = app.querySelector('#login-slot');
+const dockEl       = app.querySelector('#dock');
 const contentEl    = app.querySelector('#content');
 
 // ---- Dock buttons ----
@@ -69,7 +75,19 @@ function render(s) {
   DOCK_BTNS.light.classList.toggle('active',   s.theme  === 'light');
   DOCK_BTNS.dark.classList.toggle('active',    s.theme  === 'dark');
 
-  // Render (yalnızca masaüstü görünüm)
+  // Auth değilse yalnızca login ekranını göster
+  if (!s.authed) {
+    renderLogin(loginSlot);
+    dockEl.classList.add('hidden');
+    contentEl.classList.add('hidden');
+    return;
+  }
+  loginSlot.classList.add('hidden');
+  loginSlot.innerHTML = '';
+  dockEl.classList.remove('hidden');
+  contentEl.classList.remove('hidden');
+
+  // Uygulama görünümü
   renderSidebar(sidebarSlot);
   renderBoard(mainEl);
   renderModal(modalSlot);

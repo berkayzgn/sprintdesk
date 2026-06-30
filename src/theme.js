@@ -2,9 +2,25 @@
 // THEME — CSS değişken üretimi
 // ============================================================
 
+// Marka paleti — özelleştirme & tema renkleri (her iki temada ortak)
+export const BRAND = {
+  purple: '#360185',
+  yellow: '#FBC02D',
+  teal:   '#10CAB9',
+  pink:   '#FE6ABF',
+};
+
+const BRAND_VARS = {
+  '--brand-purple': BRAND.purple,
+  '--brand-yellow': BRAND.yellow,
+  '--brand-teal':   BRAND.teal,
+  '--brand-pink':   BRAND.pink,
+};
+
 export function themeVars(theme, style) {
   const A = style === 'A';
   if (theme === 'dark') return {
+    ...BRAND_VARS,
     '--canvas':           A ? '#0b0c13' : '#0d0e16',
     '--sidebar-bg':       A ? '#121120' : '#13141c',
     '--sidebar-fg':       'rgba(255,255,255,.62)',
@@ -23,9 +39,9 @@ export function themeVars(theme, style) {
     '--text':             '#e9eaf4',
     '--text-muted':       '#9296b3',
     '--text-subtle':      '#6b6f8c',
-    '--accent':           '#818cf8',
-    '--accent-strong':    '#6366f1',
-    '--accent-soft':      'rgba(129,140,248,.16)',
+    '--accent':           '#9b6dff',
+    '--accent-strong':    '#7c3aed',
+    '--accent-soft':      'rgba(155,109,255,.16)',
     '--border':           '#272935',
     '--radius':           A ? '12px' : '10px',
     '--chip-bg':          '#23252f',
@@ -40,12 +56,13 @@ export function themeVars(theme, style) {
   };
 
   return {
+    ...BRAND_VARS,
     '--canvas':           A ? '#eceef6' : '#f6f7fb',
     '--sidebar-bg':       '#ffffff',
     '--sidebar-fg':       '#6b7090',
     '--sidebar-fg-strong':'#191b2c',
-    '--sidebar-active':   '#eef0fe',
-    '--sidebar-active-fg':'#4f46e5',
+    '--sidebar-active':   '#ece4f7',
+    '--sidebar-active-fg':'#360185',
     '--sidebar-border':   '#ececf3',
     '--topbar-bg':        '#ffffff',
     '--surface':          '#ffffff',
@@ -58,9 +75,9 @@ export function themeVars(theme, style) {
     '--text':             '#191b2c',
     '--text-muted':       '#6b7090',
     '--text-subtle':      '#9296b3',
-    '--accent':           '#5b54e6',
-    '--accent-strong':    '#4f46e5',
-    '--accent-soft':      '#eef0fe',
+    '--accent':           '#360185',
+    '--accent-strong':    '#2a0166',
+    '--accent-soft':      '#ece4f7',
     '--border':           '#e6e7f0',
     '--radius':           A ? '12px' : '10px',
     '--chip-bg':          '#f2f3f8',

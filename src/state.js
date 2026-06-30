@@ -6,7 +6,7 @@ import { initialLists, BOARDS as DEFAULT_BOARDS } from './data.js';
 const listeners = new Set();
 
 const STORAGE_KEY = 'flowdesk.state.v1';
-const PERSIST_KEYS = ['theme', 'sideExpanded', 'listsByBoard', 'boards', 'activeBoardId'];
+const PERSIST_KEYS = ['theme', 'sideExpanded', 'listsByBoard', 'boards', 'activeBoardId', 'authed', 'userEmail'];
 
 function loadPersisted() {
   try {
@@ -54,10 +54,13 @@ export const state = {
   addingList: false,      // yeni liste formu açık mı
   editingBoardId: null,   // sidebar inline board düzenleme
   editingListId: null,    // board içi liste adı düzenleme
+  editingCardId: null,    // board içi kart adı düzenleme
   drag: null,
   over: null,
   newBoardModal: false,
   profileOpen: false,
+  authed: false,                       // demo login durumu
+  userEmail: 'ayse@acmestudio.io',
   boards: defaultBoards,
   activeBoardId: 'b0',
   ...persisted,
