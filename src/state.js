@@ -5,6 +5,34 @@ import { initialLists } from './data.js';
 
 const listeners = new Set();
 
+// ---- Kalıcı depolama (AsyncStorage benzeri, localStorage tabanlı) ----
+const STORAGE_KEY = 'flowdesk.state.v1';
+// Sadece kalıcı olması gereken alanlar (geçici UI state hariç)
+const PERSIST_KEYS = ['theme', 'sideExpanded', 'lists'];
+
+function loadPersisted() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function savePersisted(s) {
+  try {
+    const data = {};
+    for (const k of PERSIST_KEYS) data[k] = s[k];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch {
+    /* depolama erişilemezse sessizce geç */
+  }
+}
+
+const persisted = loadPersisted();
+
 export const state = {
   theme: 'light',
   device: 'desktop',
@@ -24,10 +52,13 @@ export const state = {
   newChecklistText: '',
   newCommentText: '',
   lists: initialLists(),
+  ...persisted,
 };
 
 export function setState(partial) {
   Object.assign(state, partial);
+  // Kalıcı alanlardan biri değiştiyse depolamaya yaz
+  if (PERSIST_KEYS.some(k => k in partial)) savePersisted(state);
   listeners.forEach(fn => fn(state));
 }
 

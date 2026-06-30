@@ -127,6 +127,11 @@ textarea { resize: none; }
   overflow: hidden;
 }
 
+/* Sidebar sarmalayıcısı flex akışına dahil olsun ki sidebar tam yükseklik alsın */
+#sidebar-slot {
+  display: contents;
+}
+
 /* ---- Sidebar ---- */
 #sidebar {
   flex: 0 0 auto;

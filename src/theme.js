@@ -41,12 +41,12 @@ export function themeVars(theme, style) {
 
   return {
     '--canvas':           A ? '#eceef6' : '#f6f7fb',
-    '--sidebar-bg':       A ? '#1b1830' : '#ffffff',
-    '--sidebar-fg':       A ? 'rgba(255,255,255,.64)' : '#6b7090',
-    '--sidebar-fg-strong':A ? '#ffffff' : '#191b2c',
-    '--sidebar-active':   A ? 'rgba(255,255,255,.13)' : '#eef0fe',
-    '--sidebar-active-fg':A ? '#ffffff' : '#4f46e5',
-    '--sidebar-border':   A ? 'rgba(255,255,255,.09)' : '#ececf3',
+    '--sidebar-bg':       '#ffffff',
+    '--sidebar-fg':       '#6b7090',
+    '--sidebar-fg-strong':'#191b2c',
+    '--sidebar-active':   '#eef0fe',
+    '--sidebar-active-fg':'#4f46e5',
+    '--sidebar-border':   '#ececf3',
     '--topbar-bg':        '#ffffff',
     '--surface':          '#ffffff',
     '--list-bg':          A ? '#e7e9f2' : '#eff0f6',
