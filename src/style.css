@@ -345,21 +345,6 @@ textarea { resize: none; }
   width: 100%;
 }
 
-.filter-btn {
-  appearance: none;
-  border: 1px solid var(--border, #e6e7f0);
-  background: var(--surface, #fff);
-  color: var(--text-muted, #6b7090);
-  cursor: pointer;
-  height: 38px;
-  width: 38px;
-  border-radius: 10px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: all .15s;
-}
-.filter-btn:hover { border-color: var(--accent, #5b54e6); color: var(--accent, #5b54e6); }
 
 
 /* ---- Empty State ---- */
@@ -1247,15 +1232,21 @@ body.is-dragging-card .card-inserter { visibility: hidden; }
   transition: background .15s;
 }
 .login-btn:hover { background: #2a0166; }
-.login-divider { display: flex; align-items: center; gap: 12px; margin: 22px 0 16px; color: #9296b3; font-size: 12px; }
-.login-divider::before, .login-divider::after { content: ''; flex: 1; height: 1px; background: #e6e7f0; }
-.login-btn-secondary {
-  width: 100%; border: 1.5px solid #e2e6f0; border-radius: 9px;
-  background: #fff; color: #191b2c; font-size: 14px; font-weight: 600;
-  padding: 11px; cursor: pointer; transition: background .15s;
+.login-btn:disabled { opacity: .7; cursor: progress; }
+.login-notice {
+  font-size: 13px; line-height: 1.5; color: #0b6b62;
+  background: #e6f8f6; border: 1px solid #b5ebe5; border-radius: 9px;
+  padding: 10px 12px; margin: -8px 0 18px;
 }
-.login-btn-secondary:hover { background: #f8f9fc; }
-.login-hint { font-size: 12px; color: #9296b3; text-align: center; margin: 20px 0 0; }
+.login-form .login-label:not(:first-child) { margin-top: 14px; }
+.login-form .login-pw-wrap .login-input { padding-right: 42px; }
+.login-switch { font-size: 13.5px; color: #6b7090; text-align: center; margin: 22px 0 0; }
+.login-link {
+  background: none; border: none; padding: 0; margin-left: 2px; cursor: pointer;
+  font: inherit; font-weight: 700; color: #360185;
+}
+.login-link:hover { text-decoration: underline; }
+.login-link:focus-visible { outline: 2px solid #360185; outline-offset: 2px; border-radius: 3px; }
 
 /* List title inline edit */
 .list-title-input {
@@ -1591,6 +1582,218 @@ body.is-dragging-card .card-inserter { visibility: hidden; }
 .member-picker-check { color: var(--accent, #360185); opacity: 0; display: inline-flex; }
 .member-picker-item.is-selected .member-picker-check { opacity: 1; }
 .member-picker-empty { padding: 12px 8px; font-size: 13px; color: var(--text-subtle, #9296b3); text-align: center; }
+
+/* ---- Board üye daveti ---- */
+.invite-btn {
+  width: 30px; height: 30px; margin-left: 8px; border-radius: 50%;
+  border: 1.5px dashed var(--border, #e6e7f0); background: transparent;
+  color: var(--text-muted, #6b7090); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  transition: border-color .15s, color .15s, background .15s;
+}
+.invite-btn:hover { border-color: var(--accent, #360185); color: var(--accent, #360185); background: var(--accent-soft, #ece4f7); }
+.invite-popover .member-picker-item { cursor: default; }
+.invite-popover .member-picker-item:hover { background: transparent; }
+.invite-form { display: flex; gap: 6px; }
+.invite-form .member-picker-search { flex: 1; min-width: 0; }
+.invite-submit, .nb-email-row button {
+  border: none; border-radius: 9px; padding: 0 12px;
+  background: var(--accent, #360185); color: #fff;
+  font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.invite-submit:disabled { opacity: .6; cursor: progress; }
+.invite-msg { font-size: 12px; line-height: 1.45; color: var(--text-muted, #6b7090); min-height: 0; margin: 6px 4px 0; }
+.invite-msg:empty { display: none; }
+.invite-msg.is-error { color: #ef4444; }
+
+/* ---- Yeni board: e-postayla üye ---- */
+.nb-email-row { display: flex; gap: 8px; margin: 0; }
+.nb-email-row input {
+  flex: 1; min-width: 0; box-sizing: border-box;
+  border: 1.5px solid var(--border); border-radius: 8px; padding: 9px 12px;
+  font-size: 14px; outline: none; background: var(--chip-bg); color: var(--text);
+}
+.nb-email-row input:focus { border-color: var(--accent); }
+.nb-email-hint { font-size: 11.5px; color: var(--text-subtle, #9296b3); }
+.nb-email-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.nb-email-list:empty { display: none; }
+.nb-email-chip {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
+  padding: 4px 4px 4px 10px; border-radius: 20px;
+  background: var(--accent-soft, #ece4f7); color: var(--text); font-size: 12.5px; font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.nb-email-chip button {
+  width: 20px; height: 20px; border: none; border-radius: 50%; padding: 0; flex: 0 0 auto;
+  background: transparent; color: var(--text-muted); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.nb-email-chip button:hover { background: rgba(0,0,0,.08); }
+.nb-email-chip svg { width: 12px; height: 12px; }
+
+/* ---- Topbar: yıldız, üyeler, filtre, izleyici ---- */
+.star-btn.is-starred { color: #f59e0b; }
+.members-row { appearance: none; border: none; background: transparent; padding: 0 0 0 8px; cursor: pointer; font: inherit; }
+.members-row:empty { display: none; }
+.readonly-badge {
+  font-size: 11.5px; font-weight: 700; color: var(--text-muted, #6b7090);
+  background: var(--chip-bg, #f2f3f8); padding: 3px 9px; border-radius: 20px; white-space: nowrap;
+}
+.filter-btn {
+  position: relative; height: 38px; padding: 0 12px; border-radius: 10px;
+  border: 1px solid transparent; background: var(--chip-bg, #f2f3f8); color: var(--text-muted, #6b7090);
+  display: inline-flex; align-items: center; gap: 7px; font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer;
+  transition: border-color .15s, color .15s, background .15s;
+}
+.filter-btn:hover { color: var(--text, #191b2c); }
+.filter-btn.is-active { background: var(--accent-soft, #ece4f7); color: var(--accent, #360185); border-color: var(--accent, #360185); }
+.filter-count {
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; box-sizing: border-box;
+  background: var(--accent, #360185); color: #fff; font-size: 11px; font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+@media (max-width: 700px) { .filter-btn-label { display: none; } }
+
+/* ---- Sidebar: yıldızlı board ---- */
+.board-star { margin-left: auto; padding-left: 6px; color: #f59e0b; font-size: 12px; flex: 0 0 auto; }
+
+/* ---- Kart etiketleri ---- */
+.card-labels { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 7px; }
+.card-label {
+  display: inline-flex; align-items: center; max-width: 100%; min-height: 18px; box-sizing: border-box;
+  padding: 1px 8px; border-radius: 5px; color: #fff; font-size: 11px; font-weight: 700; line-height: 16px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border: none; font-family: inherit;
+}
+.card-label.is-empty { width: 36px; min-height: 8px; height: 8px; padding: 0; }
+.modal-labels { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 34px; }
+.modal-label { min-height: 30px; padding: 0 12px; font-size: 12.5px; border-radius: 7px; cursor: pointer; }
+.modal-label.is-empty { width: 44px; height: 30px; }
+.label-add-btn {
+  appearance: none; width: 30px; height: 30px; border-radius: 7px; cursor: pointer;
+  border: 1px dashed var(--border, #d2d4e2); background: transparent; color: var(--text-muted, #6b7090);
+  display: inline-flex; align-items: center; justify-content: center; transition: all .15s;
+}
+.label-add-btn:hover { border-color: var(--accent, #5b54e6); color: var(--accent, #5b54e6); }
+
+/* ---- Etiket seçici ---- */
+.label-row { display: flex; align-items: center; gap: 4px; }
+.label-row .member-picker-item { flex: 1; min-width: 0; }
+.label-swatch {
+  flex: 1; min-width: 0; min-height: 28px; box-sizing: border-box; padding: 0 10px; border-radius: 6px;
+  color: #fff; font-size: 12.5px; font-weight: 700; display: flex; align-items: center;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.label-edit-btn {
+  flex: 0 0 auto; width: 28px; height: 28px; border: none; border-radius: 7px; background: transparent;
+  color: var(--text-subtle, #9296b3); cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+}
+.label-edit-btn:hover { background: var(--chip-bg, #f2f3f8); color: var(--text, #191b2c); }
+.label-new-btn {
+  width: 100%; margin-top: 8px; padding: 8px; border-radius: 9px; border: 1px dashed var(--border, #d2d4e2);
+  background: transparent; color: var(--text-muted, #6b7090); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+}
+.label-new-btn svg { width: 14px; height: 14px; }
+.label-new-btn:hover { border-color: var(--accent, #360185); color: var(--accent, #360185); }
+.label-edit-form { display: flex; flex-direction: column; gap: 8px; padding: 8px; margin: 4px 0; border-radius: 10px; background: var(--chip-bg, #f2f3f8); }
+.label-edit-form .member-picker-search { background: var(--surface, #fff); }
+.label-color-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.label-color, .avatar-color {
+  width: 26px; height: 26px; border-radius: 6px; border: 2.5px solid transparent; padding: 0; cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.08);
+}
+.label-color.is-selected, .avatar-color.is-selected { border-color: var(--text, #191b2c); }
+.label-edit-actions { display: flex; align-items: center; gap: 6px; }
+.label-edit-actions .invite-submit { height: 30px; }
+.label-cancel, .label-delete {
+  height: 30px; padding: 0 10px; border-radius: 8px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--border, #e6e7f0); background: var(--surface, #fff); color: var(--text, #191b2c);
+}
+.label-delete { color: #ef4444; border-color: rgba(239,68,68,.35); }
+.avatar-color-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.avatar-color { width: 30px; height: 30px; border-radius: 50%; }
+
+/* ---- Üyeler popover ---- */
+.members-popover { width: 340px; }
+.member-row { display: flex; align-items: center; gap: 10px; padding: 7px 4px; }
+.member-row-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.member-row-email { font-size: 11.5px; color: var(--text-subtle, #9296b3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.member-you { color: var(--text-subtle, #9296b3); font-weight: 500; }
+.member-role-select {
+  flex: 0 0 auto; height: 28px; padding: 0 6px; border-radius: 7px; font: inherit; font-size: 12.5px; font-weight: 600;
+  border: 1px solid var(--border, #e6e7f0); background: var(--surface, #fff); color: var(--text, #191b2c); cursor: pointer;
+}
+.member-role-badge {
+  flex: 0 0 auto; font-size: 11.5px; font-weight: 700; padding: 3px 8px; border-radius: 20px;
+  background: var(--chip-bg, #f2f3f8); color: var(--text-muted, #6b7090);
+}
+.member-role-badge.role-owner { background: var(--accent-soft, #ece4f7); color: var(--accent, #360185); }
+.member-remove, .member-remove-spacer { flex: 0 0 auto; width: 26px; height: 26px; }
+.member-remove {
+  border: none; border-radius: 7px; background: transparent; color: var(--text-subtle, #9296b3); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.member-remove svg { width: 13px; height: 13px; }
+.member-remove:hover { background: #fde4e4; color: #d33b3b; }
+.member-leave {
+  width: 100%; margin-top: 8px; padding: 8px; border-radius: 9px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  border: 1px solid rgba(239,68,68,.35); background: transparent; color: #ef4444;
+}
+.member-leave:hover, .member-leave.is-confirm { background: rgba(239,68,68,.08); }
+.members-popover .invite-form { margin-bottom: 2px; }
+
+/* ---- Filtre popover ---- */
+.filter-popover { width: 280px; }
+.filter-scroll { max-height: min(420px, 60vh); overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
+.filter-popover .member-picker-list { max-height: none; }
+.filter-popover .label-swatch { flex: 1; }
+.filter-clear {
+  width: 100%; margin-top: 8px; padding: 8px; border-radius: 9px; border: none; font: inherit; font-size: 13px; font-weight: 600;
+  background: var(--chip-bg, #f2f3f8); color: var(--text, #191b2c); cursor: pointer;
+}
+.filter-clear:disabled { opacity: .5; cursor: default; }
+
+/* ---- İzleyici (viewer) modu: düzenleme kontrollerini gizle ---- */
+#modal-scrim.is-readonly .delete-item-btn,
+#modal-scrim.is-readonly .checklist-add-row,
+#modal-scrim.is-readonly .upload-btn,
+#modal-scrim.is-readonly .remove-attach-btn,
+#modal-scrim.is-readonly #card-members-btn,
+#modal-scrim.is-readonly #label-add-btn,
+#modal-scrim.is-readonly .comment-composer,
+#modal-scrim.is-readonly .due-chip-clear { display: none !important; }
+#modal-scrim.is-readonly .due-chip,
+#modal-scrim.is-readonly .item-assignee,
+#modal-scrim.is-readonly .rail-avatar,
+#modal-scrim.is-readonly .label-open { pointer-events: none; }
+#modal-scrim.is-readonly .item-assignee:not(.is-set) { display: none; }
+#modal-scrim.is-readonly .due-chip:not(.is-set) { display: none; }
+
+/* ---- Profil: hesabı sil ---- */
+.danger-zone { border: 1.5px solid rgba(239,68,68,.3); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+.danger-zone-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.danger-zone-title { font-size: 14px; font-weight: 700; color: var(--text); }
+.danger-zone-desc { font-size: 12.5px; color: var(--text-muted); margin-top: 2px; }
+.danger-zone-confirm { display: flex; flex-direction: column; gap: 6px; }
+.danger-impact { margin: 0; padding-left: 18px; font-size: 12.5px; line-height: 1.55; color: var(--text); display: flex; flex-direction: column; gap: 4px; }
+.danger-btn-outline, .danger-btn, .danger-btn-cancel {
+  padding: 7px 14px; border-radius: 8px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.danger-btn-outline { border: 1.5px solid rgba(239,68,68,.45); background: transparent; color: #ef4444; }
+.danger-btn-outline:hover { background: rgba(239,68,68,.08); }
+.danger-btn { border: none; background: #ef4444; color: #fff; }
+.danger-btn:hover { background: #dc2626; }
+.danger-btn:disabled { opacity: .6; cursor: progress; }
+.danger-btn-cancel { border: 1.5px solid var(--border); background: none; color: var(--text); }
+
+/* ---- Yükleniyor ---- */
+.loading-state { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 600; color: var(--text-muted, #6b7090); }
+.loading-spinner {
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 2.5px solid var(--border, #e6e7f0); border-top-color: var(--accent, #360185);
+  animation: fd-spin .8s linear infinite;
+}
+@keyframes fd-spin { to { transform: rotate(360deg); } }
 
 /* ============================================================
    RESPONSIVE

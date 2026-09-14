@@ -6,8 +6,16 @@
 // okunur. Böylece re-render yalnızca ayrık eylemlerde olur ve hiçbir
 // zaman aktif yazımı bölmez (focus korunur).
 // ============================================================
-import { state, setState, moveCard, getActiveBoard, getActiveLists, setActiveLists } from './state.js';
-import { getCardView, escHtml, newId, boardMembers, collectImages, restoreImages, compactQuery, ICONS } from './helpers.js';
+import { state, setState, getActiveBoard, getActiveLists } from './state.js';
+import { getCardView, escHtml, boardMembers, collectImages, restoreImages, captureDrafts, compactQuery, ICONS } from './helpers.js';
+import {
+  moveCard, createCard, updateCard, deleteCard, createList, renameList as saveListName, deleteList as removeList,
+  canEdit, toggleStar,
+} from './store.js';
+import { openMembersPopover, closeMembersPopover, refreshMembersPopover } from './membersPopover.js';
+import { openFilterPopover, closeFilterPopover, cardMatchesFilters, activeFilterCount } from './filters.js';
+
+const STAR_FILLED = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.6 6.8 19.2l1-5.8L3.5 9.2l5.9-.9z"/></svg>`;
 
 const PLUS16 = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>`;
 const EDIT_ICON = ICONS.edit13;
@@ -18,6 +26,10 @@ const TRASH_ICON = ICONS.trash13;
 // yeniden çizmek sürüklenen elementi DOM'dan siliyor, tarayıcı da bu yüzden
 // dragend göndermeyip kartı "sürükleniyor" halinde bırakabiliyordu.
 // Gösterge tek bir element olarak DOM'da taşınır.
+// innerHTML temizlenirken Chrome odaktaki input için blur gönderiyor; bu
+// sırada gelen blur bir "kaydet" isteği değildir
+let rebuilding = false;
+
 let dragCardId = null;
 let dropTarget = null;   // { listId, beforeCardId }
 const dropIndicator = document.createElement('div');
@@ -42,6 +54,14 @@ export function renderBoard(container) {
   const emptyEl = container.querySelector('#empty-state');
   const boardEl = container.querySelector('#board-area');
 
+  // Board listesi ya da aktif board'un içeriği henüz sunucudan gelmedi
+  if (!state.boardsLoaded || (getActiveBoard() && !state.listsByBoard[state.activeBoardId])) {
+    emptyEl.classList.remove('hidden');
+    boardEl.classList.add('hidden');
+    renderEmptyState(emptyEl, 'loading');
+    return;
+  }
+
   if (!getActiveBoard()) {
     emptyEl.classList.remove('hidden');
     boardEl.classList.add('hidden');
@@ -56,7 +76,7 @@ export function renderBoard(container) {
   if (isEmpty) {
     emptyEl.classList.remove('hidden');
     boardEl.classList.add('hidden');
-    renderEmptyState(emptyEl, 'no-lists');
+    renderEmptyState(emptyEl, canEdit() ? 'no-lists' : 'no-lists-readonly');
     return;
   }
 
@@ -77,12 +97,17 @@ function renderTopbar(topbar) {
         <button class="sidebar-toggle topbar-menu-btn" id="topbar-menu-btn" title="Menü">${ICONS.menu}</button>
         <div class="board-title-row">
           <h1 id="board-title">${escHtml(title)}</h1>
-          <button class="star-btn" title="Yıldızla">${ICONS.star}</button>
+          <button class="star-btn" id="star-btn" title="Yıldızla" aria-pressed="false">${ICONS.star}</button>
+          <span class="readonly-badge hidden" id="readonly-badge" title="Bu board'da izleyici rolündesin">Sadece görüntüleme</span>
         </div>
         <div class="divider-v"></div>
-        <div class="members-row" id="members-row"></div>
+        <button type="button" class="members-row" id="members-row" title="Üyeler"></button>
+        <button class="invite-btn" id="members-btn" title="Üyeler ve davet" aria-label="Üyeler ve davet">${ICONS.userPlus}</button>
       </div>
       <div class="topbar-right">
+        <button type="button" class="filter-btn" id="filter-btn" title="Filtrele" aria-label="Filtrele">
+          ${ICONS.filter}<span class="filter-btn-label">Filtre</span><span class="filter-count hidden" id="filter-count"></span>
+        </button>
         <div class="search-box">
           ${ICONS.search}
           <input id="search-input" placeholder="Kart ara…" value="${escHtml(state.search)}">
@@ -99,6 +124,20 @@ function renderTopbar(topbar) {
       searchTimer = setTimeout(() => setState({ search: val }), 200);
     });
 
+    const openMembers = e => {
+      e.stopPropagation();
+      if (state.activeBoardId) openMembersPopover(topbar.querySelector('#members-btn'), state.activeBoardId);
+    };
+    topbar.querySelector('#members-btn').addEventListener('click', openMembers);
+    topbar.querySelector('#members-row').addEventListener('click', openMembers);
+    topbar.querySelector('#filter-btn').addEventListener('click', e => {
+      e.stopPropagation();
+      openFilterPopover(e.currentTarget);
+    });
+    topbar.querySelector('#star-btn').addEventListener('click', () => {
+      if (state.activeBoardId) toggleStar(state.activeBoardId);
+    });
+
     topbar.querySelector('#topbar-menu-btn')
       .addEventListener('click', () => (compactQuery.matches
         ? setState({ navOpen: !state.navOpen })
@@ -113,6 +152,31 @@ function renderTopbar(topbar) {
     if (inp && document.activeElement !== inp && inp.value !== state.search) inp.value = state.search;
   }
   renderTopbarMembers(topbar.querySelector('#members-row'), active);
+
+  // Board değişince önceki board'a ait popover'lar kapansın
+  if (topbar.__boardId !== state.activeBoardId) {
+    topbar.__boardId = state.activeBoardId;
+    closeMembersPopover();
+    closeFilterPopover();
+  }
+  refreshMembersPopover();
+
+  for (const id of ['#star-btn', '#members-btn', '#filter-btn']) topbar.querySelector(id).classList.toggle('hidden', !active);
+  const star = topbar.querySelector('#star-btn');
+  const starred = !!active?.starred;
+  if (star.getAttribute('aria-pressed') !== String(starred)) {
+    star.setAttribute('aria-pressed', String(starred));
+    star.classList.toggle('is-starred', starred);
+    star.innerHTML = starred ? STAR_FILLED : ICONS.star;
+    star.title = starred ? 'Yıldızı kaldır' : 'Yıldızla';
+  }
+  topbar.querySelector('#readonly-badge').classList.toggle('hidden', !active || canEdit(active));
+
+  const count = activeFilterCount();
+  const countEl = topbar.querySelector('#filter-count');
+  countEl.textContent = count || '';
+  countEl.classList.toggle('hidden', !count);
+  topbar.querySelector('#filter-btn').classList.toggle('is-active', count > 0);
 }
 
 /** Board üyeleri (en fazla 5 avatar + fazlası) */
@@ -132,6 +196,19 @@ function renderTopbarMembers(row, board) {
 function renderEmptyState(el, variant) {
   if (el.__variant === variant) return;
   el.__variant = variant;
+
+  if (variant === 'loading') {
+    el.innerHTML = `<div class="loading-state" role="status"><span class="loading-spinner"></span>Yükleniyor…</div>`;
+    return;
+  }
+
+  if (variant === 'no-lists-readonly') {
+    el.innerHTML = `
+      <h2 class="empty-title">Bu board henüz boş</h2>
+      <p class="empty-desc">Bu board'da izleyici rolündesin; listeler eklendiğinde burada görünecek.</p>
+    `;
+    return;
+  }
 
   if (variant === 'no-board') {
     el.innerHTML = `
@@ -155,7 +232,6 @@ function renderEmptyState(el, variant) {
     <p class="empty-desc">İlk listeni oluşturarak işleri organize etmeye başla.</p>
     <div class="empty-actions">
       <button class="btn-primary" id="empty-create-btn">${ICONS.plus18} İlk listeni oluştur</button>
-      <button class="btn-secondary">Şablondan başla</button>
     </div>
   `;
   el.querySelector('#empty-create-btn').addEventListener('click', () => setState({ addingList: true }));
@@ -164,6 +240,9 @@ function renderEmptyState(el, variant) {
 // ---- Board area (tam re-render — yazım sırasında tetiklenmez) ----
 function renderBoardArea(boardEl) {
   const q = (state.search || '').trim().toLowerCase();
+  const editable = canEdit();
+  const filtering = !!q || activeFilterCount() > 0;
+  boardEl.classList.toggle('is-readonly', !editable);
 
   // Tam re-render yatay/dikey scroll'u sıfırlamasın
   const { scrollLeft, scrollTop } = boardEl;
@@ -171,18 +250,23 @@ function renderBoardArea(boardEl) {
   if (dragCardId) endDrag();
 
   const oldImages = collectImages(boardEl);
+  const restoreDrafts = captureDrafts(boardEl, '.add-card-ta, .add-list-inp, .list-title-input, .card-title-input', el =>
+    `${el.className}|${el.closest('[data-list-id]')?.dataset.listId || ''}|${el.closest('[data-before-id]')?.dataset.beforeId || ''}|${el.closest('[data-card-id]')?.dataset.cardId || ''}`);
+  rebuilding = true;
   boardEl.innerHTML = '';
+  rebuilding = false;
 
   getActiveLists().forEach(list => {
     const cards = list.cards
-      .filter(c => !q || c.title.toLowerCase().includes(q) || (c.desc || '').toLowerCase().includes(q))
+      .filter(c => (!q || c.title.toLowerCase().includes(q) || (c.desc || '').toLowerCase().includes(q)) && cardMatchesFilters(c))
       .map(c => {
         const v = getCardView(c, list.id);
-        v.editing = state.editingCardId === c.id;
+        v.editing = editable && state.editingCardId === c.id;
+        v.editable = editable;
         return v;
       });
 
-    const isAddingCard = state.addingCardFor === list.id;
+    const isAddingCard = editable && state.addingCardFor === list.id;
     // Kart araya ekleniyorsa form o kartın üstünde, değilse listenin sonunda açılır
     // (hedef kart aramayla gizlenmişse de sona düşer)
     const inlineBeforeId = isAddingCard && cards.some(c => c.id === state.addingCardBefore)
@@ -190,7 +274,7 @@ function renderBoardArea(boardEl) {
       : null;
     const footerForm = isAddingCard && !inlineBeforeId;
 
-    const isEditingList = state.editingListId === list.id;
+    const isEditingList = editable && state.editingListId === list.id;
 
     const section = document.createElement('section');
     section.className = 'list';
@@ -200,16 +284,16 @@ function renderBoardArea(boardEl) {
         ${isEditingList
           ? `<input class="list-title-input" value="${escHtml(list.title)}">`
           : `<h3 class="list-title">${escHtml(list.title)}</h3>`}
-        <span class="list-count">${list.cards.length}</span>
+        <span class="list-count" ${filtering ? `title="${cards.length} / ${list.cards.length} kart gösteriliyor"` : ''}>${filtering ? `${cards.length}/${list.cards.length}` : list.cards.length}</span>
         <span class="list-spacer"></span>
-        <button class="list-menu-btn" title="Liste menüsü">${ICONS.dots}</button>
+        ${editable ? `<button class="list-menu-btn" title="Liste menüsü">${ICONS.dots}</button>` : ''}
       </div>
       <div class="list-cards" data-list-id="${list.id}">
         ${cards.map((c, i) => (c.id === inlineBeforeId
           ? buildAddCardFormHTML(c.id)
-          : buildInserterHTML(c.id, i === 0)) + buildCardHTML(c)).join('')}
+          : editable ? buildInserterHTML(c.id, i === 0) : '') + buildCardHTML(c)).join('')}
       </div>
-      <div class="list-footer">${footerForm ? buildAddCardFormHTML(null) : buildFooterHTML(list)}</div>
+      ${editable ? `<div class="list-footer">${footerForm ? buildAddCardFormHTML(null) : buildFooterHTML(list)}</div>` : ''}
     `;
     boardEl.appendChild(section);
 
@@ -222,7 +306,9 @@ function renderBoardArea(boardEl) {
   const addListCol = document.createElement('div');
   addListCol.className = 'add-list-col';
 
-  if (state.addingList) {
+  if (!editable) {
+    // izleyici: liste ekleyemez
+  } else if (state.addingList) {
     addListCol.innerHTML = `
       <div class="add-list-form">
         <input class="add-list-inp" placeholder="Liste başlığı…">
@@ -248,6 +334,7 @@ function renderBoardArea(boardEl) {
   }
 
   restoreImages(boardEl, oldImages);
+  restoreDrafts();
   boardEl.scrollLeft = scrollLeft;
   boardEl.scrollTop = scrollTop;
 }
@@ -297,18 +384,22 @@ function buildCardHTML(card) {
     </div>` : '';
 
   const colorStrip = card.color ? `<div class="card-color-strip" style="background:${card.color}"></div>` : '';
+  const labelsHTML = card.hasLabels
+    ? `<div class="card-labels">${card.labels.map(l => `<span class="card-label ${l.name ? '' : 'is-empty'}" style="background:${l.color}" title="${escHtml(l.name)}">${escHtml(l.name)}</span>`).join('')}</div>`
+    : '';
   const titleHTML = card.editing
     ? `<input class="card-title-input" value="${escHtml(card.title)}">`
     : `<div class="card-title">${escHtml(card.title)}</div>`;
 
   return `
-    <div class="card" draggable="${card.editing ? 'false' : 'true'}" data-card-id="${card.id}" data-list-id="${card.listId}">
+    <div class="card" draggable="${card.editable && !card.editing ? 'true' : 'false'}" data-card-id="${card.id}" data-list-id="${card.listId}">
       ${colorStrip}
       ${coverHTML}
       <div class="card-body">
+        ${labelsHTML}
         <div class="card-title-row">
           ${titleHTML}
-          <button class="card-qa-btn card-menu-btn" title="Kart menüsü">${ICONS.dots}</button>
+          ${card.editable ? `<button class="card-qa-btn card-menu-btn" title="Kart menüsü">${ICONS.dots}</button>` : ''}
         </div>
         ${metaHTML}
       </div>
@@ -323,16 +414,19 @@ function attachListHeaderEvents(section, list, isEditingList) {
     const inp = section.querySelector('.list-title-input');
     inp?.focus();
     inp?.select();
+    let committed = false; // input DOM'dan kalkarken gelen blur ikinci kez kaydetmesin
     const commit = () => {
+      if (committed) return;
+      committed = true;
       const name = (inp.value || '').trim();
-      if (name) renameList(list.id, name);
+      if (name && name !== list.title) renameList(list.id, name);
       else setState({ editingListId: null });
     };
     inp?.addEventListener('keydown', e => {
       if (e.key === 'Enter') { e.preventDefault(); commit(); }
-      if (e.key === 'Escape') setState({ editingListId: null });
+      if (e.key === 'Escape') { committed = true; setState({ editingListId: null }); }
     });
-    inp?.addEventListener('blur', commit);
+    inp?.addEventListener('blur', () => { if (!rebuilding) commit(); });
     return;
   }
 
@@ -390,16 +484,19 @@ function attachCardEvents(section, list) {
       const inp = cardEl.querySelector('.card-title-input');
       inp?.focus();
       inp?.select();
+      let committed = false;
       const commit = () => {
+        if (committed) return;
+        committed = true;
         const name = (inp.value || '').trim();
-        if (name) renameCard(cardId, name);
+        if (name && name !== inp.defaultValue) renameCard(cardId, name);
         else setState({ editingCardId: null });
       };
       inp?.addEventListener('keydown', e => {
         if (e.key === 'Enter') { e.preventDefault(); commit(); }
-        if (e.key === 'Escape') setState({ editingCardId: null });
+        if (e.key === 'Escape') { committed = true; setState({ editingCardId: null }); }
       });
-      inp?.addEventListener('blur', commit);
+      inp?.addEventListener('blur', () => { if (!rebuilding) commit(); });
       inp?.addEventListener('click', e => e.stopPropagation());
       return; // düzenleme modunda diğer event'leri bağlama
     }
@@ -481,24 +578,14 @@ function attachAddCardEvents(section, list) {
   });
 }
 
-// ---- Mutasyonlar ----
-function deleteCard(cardId) {
-  setActiveLists(getActiveLists().map(l => ({ ...l, cards: l.cards.filter(c => c.id !== cardId) })));
-}
-
+// ---- Mutasyonlar (store.js'e devreder) ----
 function renameCard(cardId, title) {
-  setActiveLists(getActiveLists().map(l => ({
-    ...l,
-    cards: l.cards.map(c => c.id === cardId ? { ...c, title } : c),
-  })));
   setState({ editingCardId: null });
+  updateCard(cardId, { title });
 }
 
 function setCardColor(cardId, color) {
-  setActiveLists(getActiveLists().map(l => ({
-    ...l,
-    cards: l.cards.map(c => c.id === cardId ? { ...c, color } : c),
-  })));
+  updateCard(cardId, { color });
 }
 
 // Kart "..." menüsü — transient popover (isim değiştir / renk / sil)
@@ -551,32 +638,25 @@ function openCardMenu(btn, cardId) {
 }
 
 function renameList(listId, name) {
-  setActiveLists(getActiveLists().map(l => l.id === listId ? { ...l, title: name } : l));
   setState({ editingListId: null });
+  saveListName(listId, name);
 }
 
 function deleteList(listId) {
-  setActiveLists(getActiveLists().filter(l => l.id !== listId));
   setState({ editingListId: null, addingCardFor: null });
+  removeList(listId);
 }
 
 function submitAddCard(listId, beforeCardId, taEl) {
   const t = (taEl?.value || '').trim();
   if (!t) return;
-  const newCard = { id: newId('c'), title: t, labels: [], assignees: [], desc: '', checklist: [], comments: [], attachments: [], startAt: null, dueAt: null, dueComplete: false };
-  setActiveLists(getActiveLists().map(l => {
-    if (l.id !== listId) return l;
-    const cards = [...l.cards];
-    const idx = beforeCardId ? cards.findIndex(c => c.id === beforeCardId) : -1;
-    cards.splice(idx < 0 ? cards.length : idx, 0, newCard);
-    return { ...l, cards };
-  }));
   setState({ addingCardFor: null, addingCardBefore: null });
+  createCard(listId, beforeCardId, t);
 }
 
 function submitAddList(inpEl) {
   const t = (inpEl?.value || '').trim();
   if (!t) return;
-  setActiveLists([...getActiveLists(), { id: newId('l'), title: t, cards: [] }]);
   setState({ addingList: false });
+  createList(t);
 }

@@ -1,9 +1,9 @@
 // ============================================================
 // SIDEBAR — Masaüstü sidebar bileşeni
 // ============================================================
-import { state, setState, deleteBoard } from './state.js';
-import { PEOPLE } from './data.js';
-import { escHtml, compactQuery, ICONS } from './helpers.js';
+import { state, setState } from './state.js';
+import { selectBoard, renameBoard, deleteBoard, canAdmin, isOwner } from './store.js';
+import { escHtml, compactQuery, ICONS, currentUserDisplay, captureDrafts } from './helpers.js';
 import { openSettings, closeSettings } from './settings.js';
 
 const EDIT_ICON = ICONS.edit13;
@@ -19,13 +19,17 @@ export function renderSidebar(container) {
 
   // Sidebar'ı ilgilendirmeyen state değişikliklerinde DOM'a dokunma: hem
   // gereksiz iş hem de çekmece geçiş animasyonunu bozuyor
-  const key = JSON.stringify([s.boards, s.activeBoardId, s.editingBoardId, expanded, compact, s.userEmail]);
+  const key = JSON.stringify([s.boards, s.activeBoardId, s.editingBoardId, expanded, compact, s.userEmail, s.userName, s.people[s.userId]]);
   if (container.__key === key) return;
   container.__key = key;
-  const boards = s.boards || [];
+  // Yıldızlılar üstte; kendi aralarında oluşturulma sırası korunur
+  const boards = [...(s.boards || [])].sort((a, b) => Number(!!b.starred) - Number(!!a.starred));
+  const me = currentUserDisplay(s);
   const activeId = s.activeBoardId;
   const editingId = s.editingBoardId;
 
+  // Board adı düzenlenirken board listesi sunucudan yenilenirse yazılan kaybolmasın
+  const restoreDrafts = captureDrafts(container, '#edit-board-inp');
   container.innerHTML = `
     <aside id="sidebar" style="${w ? `width:${w}` : ''}">
       <div class="sidebar-header">
@@ -59,12 +63,12 @@ export function renderSidebar(container) {
               <div class="board-btn-row ${isActive ? 'active-row' : ''}">
                 <button class="board-btn ${isActive ? 'active' : ''} board-select" data-id="${b.id}" style="flex:1;min-width:0">
                   <span class="board-dot" style="background:${b.color}"></span>
-                  ${expanded ? `<span class="board-name">${escHtml(b.name)}</span>` : ''}
+                  ${expanded ? `<span class="board-name">${escHtml(b.name)}</span>${b.starred ? `<span class="board-star" title="Yıldızlı" aria-label="Yıldızlı">★</span>` : ''}` : ''}
                 </button>
-                ${expanded ? `
+                ${expanded && canAdmin(b) ? `
                   <div class="board-actions">
                     <button class="board-action-btn edit-board-btn" data-id="${b.id}" title="İsim değiştir">${EDIT_ICON}</button>
-                    <button class="board-action-btn delete-board-btn" data-id="${b.id}" title="Sil">${TRASH_ICON}</button>
+                    ${isOwner(b) ? `<button class="board-action-btn delete-board-btn" data-id="${b.id}" title="Sil">${TRASH_ICON}</button>` : ''}
                   </div>
                 ` : ''}
               </div>
@@ -79,10 +83,10 @@ export function renderSidebar(container) {
 
       <div class="sidebar-footer ${expanded ? '' : 'is-collapsed'}">
         <button class="sidebar-user-btn" id="sidebar-user-btn" title="Profile git">
-          <span class="avatar" style="width:34px;height:34px;font-size:12.5px;font-weight:700">AY</span>
+          <span class="avatar" style="width:34px;height:34px;font-size:12.5px;font-weight:700${me.color ? `;background:${me.color}` : ''}">${escHtml(me.initials)}</span>
           ${expanded ? `
             <div class="user-info">
-              <div class="user-name">${PEOPLE.ay.name}</div>
+              <div class="user-name">${escHtml(me.name)}</div>
               <div class="user-email">${escHtml(state.userEmail || '')}</div>
             </div>
           ` : ''}
@@ -94,14 +98,7 @@ export function renderSidebar(container) {
 
   // Board seç — geçici UI durumlarını temizle
   container.querySelectorAll('.board-select').forEach(btn => {
-    btn.addEventListener('click', () => setState({
-      activeBoardId: btn.dataset.id,
-      addingList: false,
-      addingCardFor: null,
-      openCardId: null,
-      search: '',
-      navOpen: false,
-    }));
+    btn.addEventListener('click', () => selectBoard(btn.dataset.id));
   });
 
   // Edit başlat
@@ -119,15 +116,15 @@ export function renderSidebar(container) {
     const save = () => {
       const name = (inp?.value || '').trim();
       if (!name) return;
-      setState({
-        boards: state.boards.map(b => b.id === confirmBtn.dataset.id ? { ...b, name } : b),
-        editingBoardId: null,
-      });
+      const board = state.boards.find(b => b.id === confirmBtn.dataset.id);
+      if (name === board?.name) { setState({ editingBoardId: null }); return; }
+      renameBoard(confirmBtn.dataset.id, name);
     };
     confirmBtn.addEventListener('click', save);
     inp?.addEventListener('keydown', e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setState({ editingBoardId: null }); });
     inp?.focus();
   }
+  restoreDrafts();
 
   // Edit iptal
   container.querySelector('.cancel-edit')?.addEventListener('click', () => setState({ editingBoardId: null }));
@@ -136,6 +133,9 @@ export function renderSidebar(container) {
   container.querySelectorAll('.delete-board-btn').forEach(btn => {
     btn.addEventListener('click', e => {
       e.stopPropagation();
+      const board = state.boards.find(b => b.id === btn.dataset.id);
+      // Geri alınamaz: tüm listeler, kartlar ve dosyalar da silinir
+      if (!window.confirm(`"${board?.name}" board'u, içindeki tüm liste, kart ve dosyalarla birlikte silinecek. Emin misin?`)) return;
       deleteBoard(btn.dataset.id);
     });
   });

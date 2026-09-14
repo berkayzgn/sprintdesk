@@ -43,6 +43,11 @@ function placeNearTarget({ $datepicker, $target }) {
   $datepicker.style.top = `${top + window.scrollY}px`;
 }
 
+/** Takvim açık mı (açıkken board yeniden çizilirse yarım seçim kaydedilir) */
+export function isRangePickerOpen() {
+  return !!active;
+}
+
 export function closeRangePicker() {
   if (!active) return;
   const dp = active;

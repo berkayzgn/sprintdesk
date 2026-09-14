@@ -1,9 +1,48 @@
 // ============================================================
 // HELPERS — Paylaşılan yardımcı fonksiyonlar
 // ============================================================
-import { PEOPLE, LABELS } from './data.js';
+import { state } from './state.js';
 import { attachmentUrl } from './files.js';
 import { dueInfo } from './dates.js';
+
+/** Addan baş harfler: 'Berkay Özgün' → 'BÖ' */
+export function initialsOf(name) {
+  const parts = (name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '?';
+  const s = parts.length > 1 ? parts[0][0] + parts[parts.length - 1][0] : parts[0].slice(0, 2);
+  return s.toLocaleUpperCase('tr');
+}
+
+/** Oturumdaki kullanıcının görünen adı, baş harfleri ve avatar rengi */
+export function currentUserDisplay(s) {
+  const p = s.people[s.userId];
+  const name = p?.name || (s.userName || '').trim() || (s.userEmail || '').split('@')[0];
+  return { name, initials: initialsOf(name), color: p?.color || null };
+}
+
+const UNKNOWN_PERSON = { name: 'Bilinmeyen', initials: '?', color: '#888' };
+
+/** Kullanıcı id'sinden kişi nesnesi (board'dan ayrılmış olabilir) */
+export function personById(id) {
+  return state.people[id] || { id, ...UNKNOWN_PERSON };
+}
+
+/** Aktif board'un etiket id'lerini etiket nesnelerine çevirir */
+function labelsFor(ids) {
+  const labels = state.labelsByBoard[state.activeBoardId] || {};
+  return (ids || []).map(id => labels[id]).filter(Boolean);
+}
+
+/** '5dk önce', '3s önce', '2g önce', sonra tarih */
+export function relativeTime(iso) {
+  const t = new Date(iso);
+  const diff = (Date.now() - t.getTime()) / 1000;
+  if (!Number.isFinite(diff) || diff < 60) return 'şimdi';
+  if (diff < 3600) return `${Math.floor(diff / 60)}dk önce`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}s önce`;
+  if (diff < 7 * 86400) return `${Math.floor(diff / 86400)}g önce`;
+  return t.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', year: t.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
+}
 
 /** HTML özel karakterlerini güvenli hale getirir (XSS / kırık markup önleme) */
 export function escHtml(str) {
@@ -15,15 +54,10 @@ export function escHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
-/** Son tarih rozeti için satır içi stil */
 /** Dar ekran (tablet/telefon): sidebar çekmece olur */
 export const compactQuery = window.matchMedia('(max-width: 900px)');
 
-/** Çakışmayan ID (Supabase'de uuid olacak) */
-export function newId(prefix = '') {
-  return prefix + crypto.randomUUID();
-}
-
+/** Son tarih rozeti için satır içi stil */
 export function dueStyleStr(state) {
   if (state === 'over')  return 'background:rgba(244,63,94,.15);color:#e0556b';
   if (state === 'today') return 'background:rgba(245,158,11,.18);color:#d98410';
@@ -33,8 +67,8 @@ export function dueStyleStr(state) {
 }
 
 export function getCardView(c, listId) {
-  const labels    = (c.labels    || []).map(k => LABELS[k]).filter(Boolean);
-  const assignees = (c.assignees || []).map(k => PEOPLE[k]).filter(Boolean);
+  const labels    = labelsFor(c.labels);
+  const assignees = (c.assignees || []).map(personById);
   const total     = (c.checklist || []).length;
   const done      = (c.checklist || []).filter(i => i.done).length;
   const coverAtt  = (c.attachments || []).find(a => a.type === 'image');
@@ -71,12 +105,12 @@ export function getOpenCardView(raw, listTitle) {
 
   return {
     id: raw.id, title: raw.title, desc: raw.desc || '', listTitle,
-    labels:    (raw.labels    || []).map(k => LABELS[k]).filter(Boolean),
+    labels:    labelsFor(raw.labels),
     assigneeIds: [...(raw.assignees || [])],
-    assignees: (raw.assignees || []).map(k => PEOPLE[k] && { id: k, ...PEOPLE[k] }).filter(Boolean),
+    assignees: (raw.assignees || []).map(personById),
     checklist: (raw.checklist || []).map(i => {
       const d = dueInfo(i.startAt, i.dueAt, i.done);
-      const assignee = i.assignee && PEOPLE[i.assignee] ? { id: i.assignee, ...PEOPLE[i.assignee] } : null;
+      const assignee = i.assignee ? personById(i.assignee) : null;
       return { ...i, assignee, dueLabel: d ? d.label : '', dueStyle: d ? dueStyleStr(d.state) : '' };
     }),
     checklistTotal: total, checklistDone: done,
@@ -84,8 +118,8 @@ export function getOpenCardView(raw, listTitle) {
     hasChecklist: total > 0,
     comments: (raw.comments || []).map(c => ({
       id: c.id,
-      who: PEOPLE[c.who] || { initials: '?', color: '#888', name: 'Bilinmeyen' },
-      text: c.text, time: c.time,
+      who: personById(c.who),
+      text: c.text, time: relativeTime(c.createdAt),
     })),
     attachments: (raw.attachments || []).map(a => ({ ...a, url: attachmentUrl(a) })),
     startAt: raw.startAt || '', dueAt: raw.dueAt || '', dueComplete: !!raw.dueComplete,
@@ -97,9 +131,36 @@ export function getOpenCardView(raw, listTitle) {
 
 /** Board üyelerini kişi nesneleri olarak döndürür */
 export function boardMembers(board) {
-  return (board?.members || [])
-    .map(id => PEOPLE[id] && { id, ...PEOPLE[id] })
-    .filter(Boolean);
+  return (board?.members || []).map(personById);
+}
+
+/**
+ * Yeniden çizimden önce metin alanlarının değerini, focus'unu ve imleç
+ * konumunu alır; dönen fonksiyon yeni DOM'a geri yükler. Veri artık
+ * kullanıcıdan bağımsız anlarda da gelebildiği için (imzalı URL, sunucudan
+ * yeniden yükleme) yazılmakta olan metin kaybolmamalı.
+ * @param {(el: Element) => string} keyOf eski ve yeni DOM'da aynı alanı eşleyen anahtar
+ * @param {boolean} onlyFocused true: yalnızca odaktaki alanı koru (diğerleri sunucu değerini göstersin)
+ */
+export function captureDrafts(root, selector, keyOf = el => el.id, onlyFocused = false) {
+  const active = document.activeElement;
+  const saved = new Map();
+  root.querySelectorAll(selector).forEach(el => {
+    if (onlyFocused && el !== active) return;
+    saved.set(keyOf(el), { value: el.value, focused: el === active, start: el.selectionStart, end: el.selectionEnd });
+  });
+  return () => {
+    if (!saved.size) return;
+    root.querySelectorAll(selector).forEach(el => {
+      const d = saved.get(keyOf(el));
+      if (!d) return;
+      el.value = d.value;
+      if (d.focused) {
+        el.focus({ preventScroll: true });
+        try { el.setSelectionRange(d.start, d.end); } catch { /* seçim desteklemeyen input */ }
+      }
+    });
+  };
 }
 
 /**

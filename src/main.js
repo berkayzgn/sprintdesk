@@ -2,15 +2,15 @@
 // MAIN — Uygulama giriş noktası
 // ============================================================
 import './style.css';
-import { state, setState, subscribe, onPersistError, liveFileKeys } from './state.js';
-import { onFileLoaded, collectGarbage, putFile } from './files.js';
-import { showToast } from './toast.js';
+import { state, setState, subscribe } from './state.js';
+import { onFileLoaded } from './files.js';
 import { applyTheme } from './theme.js';
 import { compactQuery } from './helpers.js';
 import { renderSidebar } from './sidebar.js';
 import { renderBoard }   from './board.js';
 import { renderModal, renderNewBoardModal, renderProfileModal } from './modal.js';
 import { renderLogin } from './login.js';
+import { initAuth } from './auth.js';
 
 // ---- Root DOM ----
 const app = document.getElementById('app');
@@ -58,14 +58,19 @@ function render(s) {
   applyTheme(document.documentElement, s.theme, s.style);
   applyTheme(contentEl, s.theme, s.style);
 
+  // Oturum kontrolü bitene kadar hiçbir şey gösterme (login ekranı yanıp sönmesin)
+  if (!s.authReady) {
+    contentEl.classList.add('hidden');
+    return;
+  }
+
   // Auth değilse yalnızca login ekranını göster
   if (!s.authed) {
     renderLogin(loginSlot);
     contentEl.classList.add('hidden');
     return;
   }
-  loginSlot.classList.add('hidden');
-  loginSlot.innerHTML = '';
+  renderLogin(loginSlot); // gizler ve bir sonraki çıkış için giriş moduna sıfırlar
   contentEl.classList.remove('hidden');
 
   // Uygulama görünümü
@@ -80,12 +85,7 @@ function render(s) {
 // ---- Subscribe ----
 subscribe(render);
 
-onPersistError(err => {
-  console.error('[state] kaydedilemedi', err);
-  showToast('Değişiklikler kaydedilemedi: tarayıcı depolama alanı dolu olabilir.', 'error', 8000);
-});
-
-// IndexedDB'den geç yüklenen ek görselleri göster
+// İmzalı URL'i geç gelen ek görselleri göster
 let fileRenderQueued = false;
 onFileLoaded(() => {
   if (fileRenderQueued) return;
@@ -95,33 +95,4 @@ onFileLoaded(() => {
 
 // ---- Initial render ----
 render(state);
-
-// Eski sürümde base64 olarak localStorage'a yazılmış yüklemeleri IndexedDB'ye
-// taşı, ardından hiçbir karta bağlı olmayan dosyaları temizle
-migrateInlineUploads()
-  .catch(err => console.error('[main] ek göçü başarısız', err))
-  .finally(() => collectGarbage(liveFileKeys()));
-
-async function migrateInlineUploads() {
-  const isInline = a => !a.fileKey && a.size != null && (a.url || '').startsWith('data:');
-  let changed = false;
-  const listsByBoard = {};
-  for (const [boardId, lists] of Object.entries(state.listsByBoard)) {
-    listsByBoard[boardId] = await Promise.all(lists.map(async l => ({
-      ...l,
-      cards: await Promise.all(l.cards.map(async c => {
-        if (!(c.attachments || []).some(isInline)) return c;
-        const attachments = await Promise.all(c.attachments.map(async a => {
-          if (!isInline(a)) return a;
-          const blob = await (await fetch(a.url)).blob();
-          await putFile(a.id, blob);
-          changed = true;
-          const { url, ...rest } = a;
-          return { ...rest, fileKey: a.id, mime: blob.type };
-        }));
-        return { ...c, attachments };
-      })),
-    })));
-  }
-  if (changed) setState({ listsByBoard });
-}
+initAuth();

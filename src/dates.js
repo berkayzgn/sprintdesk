@@ -20,12 +20,6 @@ export function parseISODate(iso) {
   return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null;
 }
 
-/** Bugünden `days` gün sonrasının ISO tarihi */
-export function isoDaysFromToday(days) {
-  const t = new Date();
-  return toISODate(new Date(t.getFullYear(), t.getMonth(), t.getDate() + days));
-}
-
 /** '14 Eyl' (farklı yıldaysa '14 Eyl 2027') */
 export function formatDay(date) {
   let label = `${date.getDate()} ${MONTHS[date.getMonth()]}`;
@@ -70,14 +64,4 @@ export function dueInfo(startAt, dueAt, complete = false) {
   else state = 'later';
 
   return { label, state };
-}
-
-/** Eski `{ label: '2 Tem', state }` biçimini ISO tarihe çevirir */
-export function migrateDue(due) {
-  if (!due || !due.label) return null;
-  if (due.label === 'Bugün') return isoDaysFromToday(0);
-  const m = /^(\d{1,2})\s+(\S+)/.exec(due.label);
-  const month = m ? MONTHS.indexOf(m[2]) : -1;
-  if (month < 0) return null;
-  return toISODate(new Date(new Date().getFullYear(), month, +m[1]));
 }
