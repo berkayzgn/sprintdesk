@@ -1,6 +1,7 @@
 // ============================================================
 // DATA — Sabit veriler: kişiler, etiketler, board listesi
 // ============================================================
+import { isoDaysFromToday as day } from './dates.js';
 
 export const PEOPLE = {
   ay: { name: 'Ayşe Yılmaz',  initials: 'AY', color: '#6366f1' },
@@ -9,6 +10,9 @@ export const PEOPLE = {
   ec: { name: 'Emre Çelik',   initials: 'EÇ', color: '#f59e0b' },
   da: { name: 'Deniz Arı',    initials: 'DA', color: '#f43f5e' },
 };
+
+/** Demo oturumundaki kullanıcı (Supabase'de auth.uid olacak) */
+export const CURRENT_USER_ID = 'ay';
 
 export const LABELS = {
   design:    { name: 'Tasarım',   color: '#8b5cf6' },
@@ -39,7 +43,7 @@ export function initialLists() {
         desc: '5 kullanıcı ile derinlemesine görüşme yapılacak; çıktılar onboarding revizyonuna girdi olacak.',
         checklist: [
           { id: 'k1', text: 'Görüşme kılavuzu hazırla',  done: true  },
-          { id: 'k2', text: 'Katılımcı daveti gönder',   done: false },
+          { id: 'k2', text: 'Katılımcı daveti gönder',   done: false, dueAt: day(1) },
           { id: 'k3', text: 'Görüşmeleri tamamla',        done: false },
           { id: 'k4', text: 'Bulguları sentezle',         done: false },
         ],
@@ -47,12 +51,12 @@ export function initialLists() {
           { id: 'm1', who: 'sb', text: 'İlk 2 görüşme bu hafta planlandı.', time: '2g önce' },
           { id: 'm2', who: 'ec', text: 'Soru setine bakabilirim, paylaşır mısın?', time: '1g önce' },
         ],
-        attachments: [], due: null },
+        attachments: [], dueAt: null },
       { id: 'c2', title: 'Rakip analizi raporu', labels: ['research', 'marketing'], assignees: ['ec'],
-        desc: '', checklist: [], comments: [], attachments: [], due: { label: '2 Tem', state: 'over' } },
+        desc: '', checklist: [], comments: [], attachments: [], dueAt: day(-2), dueComplete: false },
       { id: 'c3', title: 'Yeni landing page konsepti', labels: ['design'], assignees: ['mk'],
         desc: '', checklist: [], comments: [],
-        attachments: [{ id: 'a3', type: 'image', url: ph(268), name: 'landing-konsept.png' }], due: null },
+        attachments: [{ id: 'a3', type: 'image', url: ph(268), name: 'landing-konsept.png' }], dueAt: null },
     ]},
     { id: 'l2', title: 'Tasarım', cards: [
       { id: 'c4', title: 'Dashboard yeniden tasarımı', labels: ['design'], assignees: ['mk', 'sb'],
@@ -69,16 +73,16 @@ export function initialLists() {
           { id: 'm2', who: 'sb', text: 'Boş durum metinleri güncellendi.', time: '3s önce' },
         ],
         attachments: [{ id: 'a4', type: 'image', url: ph(232), name: 'dashboard-v3.png' }],
-        due: { label: '8 Tem', state: 'soon' } },
+        startAt: day(-3), dueAt: day(5), dueComplete: false },
       { id: 'c5', title: 'Mobil ikon seti', labels: ['design'], assignees: ['mk'],
-        desc: '', checklist: [], comments: [], attachments: [], due: null },
+        desc: '', checklist: [], comments: [], attachments: [], dueAt: null },
       { id: 'c6', title: 'Tasarım sistemi: renk tokenları', labels: ['design', 'backend'], assignees: ['sb'],
         desc: '',
         checklist: [
           { id: 'k1', text: 'Açık tema', done: true },
           { id: 'k2', text: 'Koyu tema', done: true },
         ],
-        comments: [], attachments: [], due: { label: '5 Tem', state: 'soon' } },
+        comments: [], attachments: [], dueAt: day(2), dueComplete: false },
     ]},
     { id: 'l3', title: 'Geliştirme', cards: [
       { id: 'c7', title: 'Auth servisi entegrasyonu', labels: ['backend', 'urgent'], assignees: ['ay'],
@@ -88,8 +92,8 @@ export function initialLists() {
           { id: 'k2', text: 'Refresh token',    done: true  },
           { id: 'k3', text: 'Magic link',        done: true  },
           { id: 'k4', text: 'Oturum yönetimi',  done: true  },
-          { id: 'k5', text: 'Hata durumları',   done: false },
-          { id: 'k6', text: 'Birim testleri',   done: false },
+          { id: 'k5', text: 'Hata durumları',   done: false, dueAt: day(0) },
+          { id: 'k6', text: 'Birim testleri',   done: false, dueAt: day(4) },
         ],
         comments: [
           { id: 'm1', who: 'ay', text: "Refresh token PR'ı incelemeye hazır.", time: '1g önce' },
@@ -97,9 +101,9 @@ export function initialLists() {
           { id: 'm3', who: 'da', text: 'Rate limit ile çakışmasın, dikkat.', time: '4s önce' },
         ],
         attachments: [{ id: 'a7', type: 'image', url: ph(150), name: 'auth-akis.png' }],
-        due: { label: '4 Tem', state: 'today' } },
+        dueAt: day(0), dueComplete: false },
       { id: 'c8', title: 'API rate limiting', labels: ['backend'], assignees: ['ay', 'ec'],
-        desc: '', checklist: [], comments: [], attachments: [], due: null },
+        desc: '', checklist: [], comments: [], attachments: [], dueAt: null },
       { id: 'c9', title: 'Drag & drop board motoru', labels: ['backend'], assignees: ['ay'],
         desc: 'Akıcı sürükle-bırak, sıralama ve liste arası taşıma.',
         checklist: [
@@ -115,7 +119,7 @@ export function initialLists() {
         comments: [
           { id: 'm1', who: 'da', text: 'Mobilde swipe ile çakışmaya dikkat.', time: '6s önce' },
         ],
-        attachments: [{ id: 'a9', type: 'image', url: ph(30), name: 'dnd-demo.png' }], due: null },
+        attachments: [{ id: 'a9', type: 'image', url: ph(30), name: 'dnd-demo.png' }], dueAt: null },
     ]},
     { id: 'l4', title: 'İnceleme', cards: [
       { id: 'c10', title: 'PR #482: Bildirim merkezi', labels: ['backend'], assignees: ['ec'],
@@ -125,14 +129,14 @@ export function initialLists() {
           { id: 'm1', who: 'ay', text: 'Genel olarak iyi, birkaç ufak not bıraktım.', time: '3s önce' },
           { id: 'm2', who: 'mk', text: 'Boş durum görseli eklenebilir.', time: '2s önce' },
         ],
-        attachments: [], due: null },
+        attachments: [], dueAt: null },
       { id: 'c11', title: 'QA: Ödeme akışı', labels: ['urgent', 'bug'], assignees: ['sb'],
         desc: '',
         checklist: [
           { id: 'k1', text: 'Kart ile ödeme', done: true  },
           { id: 'k2', text: 'Hata senaryoları', done: false },
         ],
-        comments: [], attachments: [], due: { label: 'Bugün', state: 'today' } },
+        comments: [], attachments: [], dueAt: day(1), dueComplete: false },
     ]},
     { id: 'l5', title: 'Tamamlandı', cards: [
       { id: 'c12', title: 'Marka kılavuzu v2', labels: ['design', 'marketing'], assignees: ['mk'],
@@ -142,9 +146,9 @@ export function initialLists() {
           { id: 'k2', text: 'Tipografi',      done: true },
           { id: 'k3', text: 'Renkler',        done: true },
         ],
-        comments: [], attachments: [], due: { label: '28 Haz', state: 'done' } },
+        comments: [], attachments: [], dueAt: day(-6), dueComplete: true },
       { id: 'c13', title: 'Beta davet e-postaları', labels: ['marketing'], assignees: ['ec'],
-        desc: '', checklist: [], comments: [], attachments: [], due: { label: '26 Haz', state: 'done' } },
+        desc: '', checklist: [], comments: [], attachments: [], dueAt: day(-8), dueComplete: true },
     ]},
   ];
 }

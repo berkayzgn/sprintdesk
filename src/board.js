@@ -6,19 +6,48 @@
 // okunur. Böylece re-render yalnızca ayrık eylemlerde olur ve hiçbir
 // zaman aktif yazımı bölmez (focus korunur).
 // ============================================================
-import { state, setState, commitDrop, getActiveBoard, getActiveLists, setActiveLists } from './state.js';
-import { getCardView, escHtml, ICONS } from './helpers.js';
-import { PEOPLE } from './data.js';
+import { state, setState, moveCard, getActiveBoard, getActiveLists, setActiveLists } from './state.js';
+import { getCardView, escHtml, newId, boardMembers, collectImages, restoreImages, compactQuery, ICONS } from './helpers.js';
 
 const PLUS16 = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>`;
-const EDIT_ICON = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4Z"/></svg>`;
-const TRASH_ICON = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>`;
+const EDIT_ICON = ICONS.edit13;
+const TRASH_ICON = ICONS.trash13;
+
+// ---- Sürükle-bırak ----
+// Sürükleme durumu bilerek state'te DEĞİL: her dragenter'da tüm uygulamayı
+// yeniden çizmek sürüklenen elementi DOM'dan siliyor, tarayıcı da bu yüzden
+// dragend göndermeyip kartı "sürükleniyor" halinde bırakabiliyordu.
+// Gösterge tek bir element olarak DOM'da taşınır.
+let dragCardId = null;
+let dropTarget = null;   // { listId, beforeCardId }
+const dropIndicator = document.createElement('div');
+dropIndicator.className = 'drop-indicator';
+
+function endDrag() {
+  document.body.classList.remove('is-dragging-card');
+  document.querySelector('.card.dragging')?.classList.remove('dragging');
+  dropIndicator.remove();
+  dragCardId = null;
+  dropTarget = null;
+}
+
+// Liste dışına çıkınca göstergeyi gizle (bırakılırsa hiçbir şey olmasın)
+document.addEventListener('dragover', e => {
+  if (dragCardId && !e.target.closest?.('.list')) { dropIndicator.remove(); dropTarget = null; }
+});
 
 export function renderBoard(container) {
   renderTopbar(container.querySelector('#topbar'));
 
   const emptyEl = container.querySelector('#empty-state');
   const boardEl = container.querySelector('#board-area');
+
+  if (!getActiveBoard()) {
+    emptyEl.classList.remove('hidden');
+    boardEl.classList.add('hidden');
+    renderEmptyState(emptyEl, 'no-board');
+    return;
+  }
 
   // Aktif board'un hiç listesi yoksa (yeni board) empty state göster —
   // ama kullanıcı "liste ekle" formunu açtıysa board alanına geç
@@ -27,7 +56,7 @@ export function renderBoard(container) {
   if (isEmpty) {
     emptyEl.classList.remove('hidden');
     boardEl.classList.add('hidden');
-    renderEmptyState(emptyEl);
+    renderEmptyState(emptyEl, 'no-lists');
     return;
   }
 
@@ -39,7 +68,7 @@ export function renderBoard(container) {
 // ---- Topbar ----
 function renderTopbar(topbar) {
   const active = getActiveBoard();
-  const title = active ? active.name : 'Board';
+  const title = active ? active.name : 'Board yok';
 
   if (!topbar.__built) {
     topbar.__built = true;
@@ -58,7 +87,6 @@ function renderTopbar(topbar) {
           ${ICONS.search}
           <input id="search-input" placeholder="Kart ara…" value="${escHtml(state.search)}">
         </div>
-        <button class="invite-btn">${ICONS.invite} Davet Et</button>
       </div>
     `;
 
@@ -72,21 +100,10 @@ function renderTopbar(topbar) {
     });
 
     topbar.querySelector('#topbar-menu-btn')
-      .addEventListener('click', () => setState({ sideExpanded: !state.sideExpanded }));
+      .addEventListener('click', () => (compactQuery.matches
+        ? setState({ navOpen: !state.navOpen })
+        : setState({ sideExpanded: !state.sideExpanded })));
 
-    const membersRow = topbar.querySelector('#members-row');
-    [PEOPLE.ay, PEOPLE.mk, PEOPLE.sb, PEOPLE.ec].forEach(p => {
-      const sp = document.createElement('span');
-      sp.className = 'member-avatar';
-      sp.style.background = p.color;
-      sp.title = p.name;
-      sp.textContent = p.initials;
-      membersRow.appendChild(sp);
-    });
-    const overflow = document.createElement('span');
-    overflow.className = 'member-overflow';
-    overflow.textContent = '+3';
-    membersRow.appendChild(overflow);
   } else {
     // Başlığı aktif board'a göre güncelle
     const titleEl = topbar.querySelector('#board-title');
@@ -95,12 +112,39 @@ function renderTopbar(topbar) {
     const inp = topbar.querySelector('#search-input');
     if (inp && document.activeElement !== inp && inp.value !== state.search) inp.value = state.search;
   }
+  renderTopbarMembers(topbar.querySelector('#members-row'), active);
+}
+
+/** Board üyeleri (en fazla 5 avatar + fazlası) */
+function renderTopbarMembers(row, board) {
+  const members = boardMembers(board);
+  const key = members.map(m => m.id).join(',');
+  if (row.dataset.key === key) return;
+  row.dataset.key = key;
+  const shown = members.slice(0, 5);
+  row.innerHTML = shown.map(p =>
+    `<span class="member-avatar" style="background:${p.color}" title="${escHtml(p.name)}">${escHtml(p.initials)}</span>`
+  ).join('') + (members.length > shown.length ? `<span class="member-overflow">+${members.length - shown.length}</span>` : '');
+  row.title = members.map(m => m.name).join(', ');
 }
 
 // ---- Empty state ----
-function renderEmptyState(el) {
-  if (el.__built) return;
-  el.__built = true;
+function renderEmptyState(el, variant) {
+  if (el.__variant === variant) return;
+  el.__variant = variant;
+
+  if (variant === 'no-board') {
+    el.innerHTML = `
+      <h2 class="empty-title">Henüz bir board yok</h2>
+      <p class="empty-desc">Yeni bir board oluşturarak başla.</p>
+      <div class="empty-actions">
+        <button class="btn-primary" id="empty-create-board-btn">${ICONS.plus18} Board oluştur</button>
+      </div>
+    `;
+    el.querySelector('#empty-create-board-btn').addEventListener('click', () => setState({ newBoardModal: true }));
+    return;
+  }
+
   el.innerHTML = `
     <div class="empty-illustration">
       <div class="empty-col"><div class="empty-card" style="height:30px"></div><div class="empty-card" style="height:42px"></div></div>
@@ -120,19 +164,31 @@ function renderEmptyState(el) {
 // ---- Board area (tam re-render — yazım sırasında tetiklenmez) ----
 function renderBoardArea(boardEl) {
   const q = (state.search || '').trim().toLowerCase();
+
+  // Tam re-render yatay/dikey scroll'u sıfırlamasın
+  const { scrollLeft, scrollTop } = boardEl;
+  // Sürükleme sürerken (ör. başka bir sebeple render) kaynak kart gidiyor
+  if (dragCardId) endDrag();
+
+  const oldImages = collectImages(boardEl);
   boardEl.innerHTML = '';
 
   getActiveLists().forEach(list => {
     const cards = list.cards
       .filter(c => !q || c.title.toLowerCase().includes(q) || (c.desc || '').toLowerCase().includes(q))
       .map(c => {
-        const v = getCardView(c, list.id, state.drag, state.over);
+        const v = getCardView(c, list.id);
         v.editing = state.editingCardId === c.id;
         return v;
       });
 
     const isAddingCard = state.addingCardFor === list.id;
-    const showEndIndicator = !!(state.drag && state.over && state.over.listId === list.id && !state.over.beforeCardId);
+    // Kart araya ekleniyorsa form o kartın üstünde, değilse listenin sonunda açılır
+    // (hedef kart aramayla gizlenmişse de sona düşer)
+    const inlineBeforeId = isAddingCard && cards.some(c => c.id === state.addingCardBefore)
+      ? state.addingCardBefore
+      : null;
+    const footerForm = isAddingCard && !inlineBeforeId;
 
     const isEditingList = state.editingListId === list.id;
 
@@ -149,16 +205,17 @@ function renderBoardArea(boardEl) {
         <button class="list-menu-btn" title="Liste menüsü">${ICONS.dots}</button>
       </div>
       <div class="list-cards" data-list-id="${list.id}">
-        ${cards.map(buildCardHTML).join('')}
-        ${showEndIndicator ? '<div class="drop-indicator"></div>' : ''}
+        ${cards.map((c, i) => (c.id === inlineBeforeId
+          ? buildAddCardFormHTML(c.id)
+          : buildInserterHTML(c.id, i === 0)) + buildCardHTML(c)).join('')}
       </div>
-      <div class="list-footer">${buildFooterHTML(list, isAddingCard)}</div>
+      <div class="list-footer">${footerForm ? buildAddCardFormHTML(null) : buildFooterHTML(list)}</div>
     `;
     boardEl.appendChild(section);
 
     attachListHeaderEvents(section, list, isEditingList);
     attachCardEvents(section, list);
-    attachFooterEvents(section, list, isAddingCard);
+    attachAddCardEvents(section, list);
   });
 
   // ---- Yeni Liste kolonu ----
@@ -189,28 +246,41 @@ function renderBoardArea(boardEl) {
     boardEl.appendChild(addListCol);
     addListCol.querySelector('#add-list-trigger-btn').addEventListener('click', () => setState({ addingList: true }));
   }
+
+  restoreImages(boardEl, oldImages);
+  boardEl.scrollLeft = scrollLeft;
+  boardEl.scrollTop = scrollTop;
 }
 
 // ---- HTML builder'ları ----
-function buildFooterHTML(list, isAddingCard) {
-  if (isAddingCard) {
-    return `
-      <div class="add-card-form">
-        <textarea class="add-card-ta" rows="2" placeholder="Kart başlığı gir…"></textarea>
-        <div class="add-card-actions">
-          <button class="btn-add submit-card-btn">Ekle</button>
-          <button class="btn-cancel cancel-card-btn">${ICONS.x}</button>
-        </div>
+function buildAddCardFormHTML(beforeCardId) {
+  return `
+    <div class="add-card-form ${beforeCardId ? 'is-inline' : ''}" data-before-id="${beforeCardId ? escHtml(beforeCardId) : ''}">
+      <textarea class="add-card-ta" rows="2" placeholder="Kart başlığı gir…"></textarea>
+      <div class="add-card-actions">
+        <button class="btn-add submit-card-btn">Ekle</button>
+        <button class="btn-cancel cancel-card-btn">${ICONS.x}</button>
       </div>
-    `;
-  }
+    </div>
+  `;
+}
+
+/** Kartın üstündeki ince "—— + ——" çizgisi: tıklanınca oraya kart ekler */
+function buildInserterHTML(beforeCardId, isTop) {
+  return `
+    <button type="button" class="card-inserter ${isTop ? 'is-top' : ''}" data-before-id="${escHtml(beforeCardId)}" title="Buraya kart ekle" aria-label="Buraya kart ekle">
+      <span class="card-inserter-plus">${PLUS16}</span>
+    </button>
+  `;
+}
+
+function buildFooterHTML(list) {
   return `<button class="add-card-btn" data-list-id="${list.id}">${PLUS16} Kart Ekle</button>`;
 }
 
 function buildCardHTML(card) {
-  const coverHTML = card.hasCover ? `<div class="card-cover"><img src="${card.cover}" alt=""></div>` : '';
-  const labelsHTML = card.hasLabels
-    ? `<div class="card-labels">${card.labels.map(lb => `<span class="label-pill" title="${escHtml(lb.name)}" style="background:${lb.color}"></span>`).join('')}</div>`
+  const coverHTML = card.hasCover
+    ? `<div class="card-cover">${card.cover ? `<img src="${escHtml(card.cover)}" alt="">` : ''}</div>`
     : '';
   const dueHTML = card.hasDue ? `<span class="due-badge" style="${card.dueStyle}">${ICONS.clock} ${escHtml(card.dueLabel)}</span>` : '';
   const checkHTML = card.hasChecklist ? `<span class="checklist-badge" style="${card.checklistStyle}">${ICONS.check14} ${card.checklistLabel}</span>` : '';
@@ -232,12 +302,10 @@ function buildCardHTML(card) {
     : `<div class="card-title">${escHtml(card.title)}</div>`;
 
   return `
-    <div class="card ${card.dragging ? 'dragging' : ''}" draggable="${card.editing ? 'false' : 'true'}" data-card-id="${card.id}" data-list-id="${card.listId}">
-      ${card.showIndicator ? '<div class="drop-indicator"></div>' : ''}
+    <div class="card" draggable="${card.editing ? 'false' : 'true'}" data-card-id="${card.id}" data-list-id="${card.listId}">
       ${colorStrip}
       ${coverHTML}
       <div class="card-body">
-        ${labelsHTML}
         <div class="card-title-row">
           ${titleHTML}
           <button class="card-qa-btn card-menu-btn" title="Kart menüsü">${ICONS.dots}</button>
@@ -338,7 +406,7 @@ function attachCardEvents(section, list) {
 
     cardEl.addEventListener('click', e => {
       if (e.target.closest('.card-qa-btn')) return;
-      setState({ openCardId: cardId, mobileMenuOpen: false });
+      setState({ openCardId: cardId });
     });
 
     // 3-nokta menüsü: isim değiştir / renk / sil
@@ -348,45 +416,69 @@ function attachCardEvents(section, list) {
     });
 
     cardEl.addEventListener('dragstart', e => {
-      setState({ drag: { cardId, fromListId: list.id } });
+      dragCardId = cardId;
+      document.body.classList.add('is-dragging-card');
       try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', cardId); } catch (_) {}
+      // Sürükleme görüntüsü alındıktan sonra soluklaştır
+      setTimeout(() => cardEl.classList.add('dragging'), 0);
     });
-    cardEl.addEventListener('dragenter', e => {
-      e.preventDefault(); e.stopPropagation();
-      if (!state.drag) return;
-      if (!state.over || state.over.listId !== list.id || state.over.beforeCardId !== cardId) {
-        setState({ over: { listId: list.id, beforeCardId: cardId } });
-      }
-    });
-    cardEl.addEventListener('dragend', () => setState({ drag: null, over: null }));
+    cardEl.addEventListener('dragend', endDrag);
   });
 
-  const cardsContainer = section.querySelector('.list-cards');
-  cardsContainer.addEventListener('dragover', e => {
-    if (state.drag) { e.preventDefault(); try { e.dataTransfer.dropEffect = 'move'; } catch (_) {} }
+  // Tüm liste bir bırakma alanı; konum imlecin kart ortalarına göre bulunur
+  section.addEventListener('dragover', e => {
+    if (!dragCardId) return;
+    e.preventDefault();
+    try { e.dataTransfer.dropEffect = 'move'; } catch (_) {}
+
+    const container = section.querySelector('.list-cards');
+    const next = [...container.querySelectorAll('.card')]
+      .filter(el => el.dataset.cardId !== dragCardId)
+      .find(el => {
+        const r = el.getBoundingClientRect();
+        return e.clientY < r.top + r.height / 2;
+      });
+    const beforeCardId = next ? next.dataset.cardId : null;
+
+    if (dropTarget && dropTarget.listId === list.id && dropTarget.beforeCardId === beforeCardId && dropIndicator.isConnected) return;
+    dropTarget = { listId: list.id, beforeCardId };
+    container.insertBefore(dropIndicator, next || null);
   });
-  cardsContainer.addEventListener('dragenter', () => {
-    if (!state.drag) return;
-    if (!state.over || state.over.listId !== list.id) setState({ over: { listId: list.id, beforeCardId: null } });
+
+  section.addEventListener('drop', e => {
+    if (!dragCardId) return;
+    e.preventDefault();
+    const cardId = dragCardId;
+    const target = dropTarget;
+    endDrag();
+    if (target) moveCard(cardId, target.listId, target.beforeCardId);
   });
-  cardsContainer.addEventListener('drop', e => { e.preventDefault(); commitDrop(); });
 }
 
-function attachFooterEvents(section, list, isAddingCard) {
-  if (isAddingCard) {
-    const ta = section.querySelector('.add-card-ta');
-    ta?.focus();
-    ta?.addEventListener('keydown', e => {
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitAddCard(list.id, ta); }
-      if (e.key === 'Escape') setState({ addingCardFor: null });
+function attachAddCardEvents(section, list) {
+  const form = section.querySelector('.add-card-form');
+  if (form) {
+    const ta = form.querySelector('.add-card-ta');
+    const beforeId = form.dataset.beforeId || null;
+    const close = () => setState({ addingCardFor: null, addingCardBefore: null });
+    ta.focus();
+    ta.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitAddCard(list.id, beforeId, ta); }
+      if (e.key === 'Escape') close();
     });
-    section.querySelector('.submit-card-btn')?.addEventListener('click', () => submitAddCard(list.id, ta));
-    section.querySelector('.cancel-card-btn')?.addEventListener('click', () => setState({ addingCardFor: null }));
-  } else {
-    section.querySelector('.add-card-btn')?.addEventListener('click', e => {
-      setState({ addingCardFor: e.currentTarget.dataset.listId });
-    });
+    form.querySelector('.submit-card-btn').addEventListener('click', () => submitAddCard(list.id, beforeId, ta));
+    form.querySelector('.cancel-card-btn').addEventListener('click', close);
   }
+
+  section.querySelector('.add-card-btn')?.addEventListener('click', () => {
+    setState({ addingCardFor: list.id, addingCardBefore: null });
+  });
+  section.querySelectorAll('.card-inserter').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      setState({ addingCardFor: list.id, addingCardBefore: btn.dataset.beforeId });
+    });
+  });
 }
 
 // ---- Mutasyonlar ----
@@ -468,17 +560,23 @@ function deleteList(listId) {
   setState({ editingListId: null, addingCardFor: null });
 }
 
-function submitAddCard(listId, taEl) {
+function submitAddCard(listId, beforeCardId, taEl) {
   const t = (taEl?.value || '').trim();
   if (!t) return;
-  const newCard = { id: 'c' + Date.now(), title: t, labels: [], assignees: [], desc: '', checklist: [], comments: [], attachments: [], due: null };
-  setActiveLists(getActiveLists().map(l => l.id === listId ? { ...l, cards: [...l.cards, newCard] } : l));
-  setState({ addingCardFor: null });
+  const newCard = { id: newId('c'), title: t, labels: [], assignees: [], desc: '', checklist: [], comments: [], attachments: [], startAt: null, dueAt: null, dueComplete: false };
+  setActiveLists(getActiveLists().map(l => {
+    if (l.id !== listId) return l;
+    const cards = [...l.cards];
+    const idx = beforeCardId ? cards.findIndex(c => c.id === beforeCardId) : -1;
+    cards.splice(idx < 0 ? cards.length : idx, 0, newCard);
+    return { ...l, cards };
+  }));
+  setState({ addingCardFor: null, addingCardBefore: null });
 }
 
 function submitAddList(inpEl) {
   const t = (inpEl?.value || '').trim();
   if (!t) return;
-  setActiveLists([...getActiveLists(), { id: 'l' + Date.now(), title: t, cards: [] }]);
+  setActiveLists([...getActiveLists(), { id: newId('l'), title: t, cards: [] }]);
   setState({ addingList: false });
 }

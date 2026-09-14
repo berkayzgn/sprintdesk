@@ -47,11 +47,6 @@ export function themeVars(theme, style) {
     '--chip-bg':          '#23252f',
     '--count-bg':         'rgba(255,255,255,.08)',
     '--addlist-bg':       'rgba(255,255,255,.03)',
-    '--dock-bg':          '#08080d',
-    '--dock-fg':          '#7e82a0',
-    '--dock-title':       '#fff',
-    '--dock-track':       'rgba(255,255,255,.06)',
-    '--dock-border':      'rgba(255,255,255,.06)',
     '--scrim':            'rgba(0,0,0,.62)',
   };
 
@@ -83,11 +78,6 @@ export function themeVars(theme, style) {
     '--chip-bg':          '#f2f3f8',
     '--count-bg':         'rgba(120,120,150,.12)',
     '--addlist-bg':       'rgba(255,255,255,.45)',
-    '--dock-bg':          '#14131f',
-    '--dock-fg':          '#9296b3',
-    '--dock-title':       '#fff',
-    '--dock-track':       'rgba(255,255,255,.07)',
-    '--dock-border':      'rgba(255,255,255,.08)',
     '--scrim':            'rgba(17,18,32,.45)',
   };
 }

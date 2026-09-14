@@ -1,30 +1,38 @@
 // ============================================================
 // SIDEBAR — Masaüstü sidebar bileşeni
 // ============================================================
-import { state, setState } from './state.js';
+import { state, setState, deleteBoard } from './state.js';
 import { PEOPLE } from './data.js';
-import { escHtml, ICONS } from './helpers.js';
+import { escHtml, compactQuery, ICONS } from './helpers.js';
+import { openSettings, closeSettings } from './settings.js';
 
-const EDIT_ICON = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4Z"/></svg>`;
-const TRASH_ICON = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>`;
+const EDIT_ICON = ICONS.edit13;
+const TRASH_ICON = ICONS.trash13;
 const CHECK_ICON = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>`;
 const X_ICON = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>`;
 
 export function renderSidebar(container) {
   const s = state;
-  const expanded = s.sideExpanded;
-  const w = expanded ? '258px' : '74px';
+  const compact = compactQuery.matches;
+  const expanded = compact || s.sideExpanded;
+  const w = compact ? '' : (expanded ? '258px' : '74px');
+
+  // Sidebar'ı ilgilendirmeyen state değişikliklerinde DOM'a dokunma: hem
+  // gereksiz iş hem de çekmece geçiş animasyonunu bozuyor
+  const key = JSON.stringify([s.boards, s.activeBoardId, s.editingBoardId, expanded, compact, s.userEmail]);
+  if (container.__key === key) return;
+  container.__key = key;
   const boards = s.boards || [];
   const activeId = s.activeBoardId;
   const editingId = s.editingBoardId;
 
   container.innerHTML = `
-    <aside id="sidebar" style="width:${w};transition:width .2s">
+    <aside id="sidebar" style="${w ? `width:${w}` : ''}">
       <div class="sidebar-header">
         <span class="workspace-icon">A</span>
         ${expanded ? `
           <div class="workspace-info">
-            <div class="workspace-name">Acme Studio</div>
+            <div class="workspace-name">KYNC</div>
             <div class="workspace-plan">Premium çalışma alanı</div>
           </div>` : ''}
       </div>
@@ -40,7 +48,7 @@ export function renderSidebar(container) {
               return `
                 <div class="board-btn active" style="gap:6px;padding:6px 8px">
                   <span class="board-dot" style="background:${b.color};flex-shrink:0"></span>
-                  <input id="edit-board-inp" value="${escHtml(b.name)}" style="flex:1;min-width:0;border:none;outline:none;background:transparent;font-size:13px;font-weight:600;color:var(--text,#1a1d2e)">
+                  <input id="edit-board-inp" value="${escHtml(b.name)}" style="flex:1;min-width:0;border:none;outline:none;background:transparent;font-size:13px;font-weight:600;color:var(--text)">
                   <button class="board-action-btn confirm-edit" data-id="${b.id}" title="Kaydet">${CHECK_ICON}</button>
                   <button class="board-action-btn cancel-edit" title="İptal">${X_ICON}</button>
                 </div>
@@ -69,17 +77,17 @@ export function renderSidebar(container) {
         </button>
       </div>
 
-      <div class="sidebar-footer">
+      <div class="sidebar-footer ${expanded ? '' : 'is-collapsed'}">
         <button class="sidebar-user-btn" id="sidebar-user-btn" title="Profile git">
           <span class="avatar" style="width:34px;height:34px;font-size:12.5px;font-weight:700">AY</span>
           ${expanded ? `
             <div class="user-info">
               <div class="user-name">${PEOPLE.ay.name}</div>
-              <div class="user-email">ayse@acmestudio.io</div>
+              <div class="user-email">${escHtml(state.userEmail || '')}</div>
             </div>
           ` : ''}
         </button>
-        ${expanded ? `<button class="icon-btn">${ICONS.sliders}</button>` : ''}
+        <button class="icon-btn" id="sidebar-settings-btn" title="Ayarlar" aria-label="Ayarlar">${ICONS.sliders}</button>
       </div>
     </aside>
   `;
@@ -92,6 +100,7 @@ export function renderSidebar(container) {
       addingCardFor: null,
       openCardId: null,
       search: '',
+      navOpen: false,
     }));
   });
 
@@ -127,18 +136,18 @@ export function renderSidebar(container) {
   container.querySelectorAll('.delete-board-btn').forEach(btn => {
     btn.addEventListener('click', e => {
       e.stopPropagation();
-      const id = btn.dataset.id;
-      const remaining = state.boards.filter(b => b.id !== id);
-      setState({
-        boards: remaining,
-        activeBoardId: state.activeBoardId === id ? (remaining[0]?.id || null) : state.activeBoardId,
-      });
+      deleteBoard(btn.dataset.id);
     });
   });
 
   // Yeni board
-  container.querySelector('#add-board-btn').addEventListener('click', () => setState({ newBoardModal: true }));
+  container.querySelector('#add-board-btn').addEventListener('click', () => setState({ newBoardModal: true, navOpen: false }));
 
   // Profil
-  container.querySelector('#sidebar-user-btn').addEventListener('click', () => setState({ profileOpen: true }));
+  container.querySelector('#sidebar-user-btn').addEventListener('click', () => setState({ profileOpen: true, navOpen: false }));
+
+  // Ayarlar (tema)
+  closeSettings(); // sidebar yeniden çizildiyse eski çapaya bağlı popover kalmasın
+  const settingsBtn = container.querySelector('#sidebar-settings-btn');
+  settingsBtn.addEventListener('click', e => { e.stopPropagation(); openSettings(settingsBtn); });
 }

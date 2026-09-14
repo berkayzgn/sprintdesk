@@ -1,15 +1,33 @@
 // ============================================================
 // MODAL — Kart detay modal (masaüstü)
 // ============================================================
-import { state, setState, updateCard, getActiveLists } from './state.js';
-import { findRawCard, getOpenCardView, escHtml, ICONS } from './helpers.js';
+import { state, setState, updateCard, getActiveLists, getActiveBoard } from './state.js';
+import { findRawCard, getOpenCardView, escHtml, newId, boardMembers, collectImages, restoreImages, ICONS } from './helpers.js';
+import { openMemberPicker, closeMemberPicker } from './memberPicker.js';
+import { putFile, deleteFile } from './files.js';
+import { PEOPLE, CURRENT_USER_ID } from './data.js';
+import { showToast } from './toast.js';
+import { openRangePicker, closeRangePicker } from './datepicker.js';
 
 const FILE_ICON = `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>`;
+const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
 /** Dosya adından uzantıyı (kısa) döndürür */
 function fileExt(name) {
   const m = /\.([a-z0-9]+)$/i.exec(name || '');
   return m ? m[1].toUpperCase().slice(0, 4) : 'DOSYA';
+}
+
+// Fare basılıyken bir input blur olursa commit'i tıklama bitene kadar
+// ertele: commit modalı yeniden çizer ve basılan butonu DOM'dan silerek
+// tıklamayı yutuyordu.
+let pointerDown = false;
+document.addEventListener('pointerdown', () => { pointerDown = true; }, true);
+document.addEventListener('pointerup', () => { pointerDown = false; }, true);
+
+function afterPointerUp(fn) {
+  if (!pointerDown) { fn(); return; }
+  document.addEventListener('pointerup', () => setTimeout(fn, 0), { once: true, capture: true });
 }
 
 let fileInput = null;
@@ -22,28 +40,37 @@ function ensureFileInput() {
   fileInput.multiple = true;
   fileInput.style.display = 'none';
   document.body.appendChild(fileInput);
-  fileInput.addEventListener('change', e => {
+  fileInput.addEventListener('change', async e => {
     const files = Array.from(e.target.files || []);
-    if (!files.length || !state.openCardId) return;
-    const id = state.openCardId;
-    files.forEach(f => {
-      const r = new FileReader();
-      r.onload = () => {
-        const isImage = (f.type || '').startsWith('image/');
-        updateCard(id, c => ({
-          ...c,
-          attachments: [...(c.attachments || []), {
-            id: 'a' + Date.now() + Math.random().toString(36).slice(2, 6),
-            type: isImage ? 'image' : 'file',
-            url: r.result,
-            name: f.name,
-            size: f.size,
-          }],
-        }));
-      };
-      r.readAsDataURL(f);
-    });
     e.target.value = '';
+    const cardId = state.openCardId;
+    if (!files.length || !cardId) return;
+
+    for (const f of files) {
+      if (f.size > MAX_FILE_BYTES) {
+        showToast(`${f.name} çok büyük (en fazla 25 MB).`, 'error');
+        continue;
+      }
+      const id = newId('a');
+      try {
+        await putFile(id, f);
+      } catch (err) {
+        console.error('[modal] dosya kaydedilemedi', err);
+        showToast(`${f.name} kaydedilemedi.`, 'error');
+        continue;
+      }
+      updateCard(cardId, c => ({
+        ...c,
+        attachments: [...(c.attachments || []), {
+          id,
+          fileKey: id,
+          type: (f.type || '').startsWith('image/') ? 'image' : 'file',
+          name: f.name,
+          size: f.size,
+          mime: f.type || '',
+        }],
+      }));
+    }
   });
 }
 
@@ -55,21 +82,63 @@ function fmtSize(bytes) {
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
+/**
+ * Tarih çipi: tıklanınca başlangıç/bitiş aralık takvimi açılır. Görünmez
+ * input takvimin konum ve focus/blur çapası.
+ */
+function dueChipHTML({ key, startAt, dueAt, label, style, emptyText, compact = false }) {
+  const set = !!dueAt;
+  return `
+    <span class="due-chip ${set ? 'is-set' : ''} ${compact ? 'compact' : ''}" data-due-key="${escHtml(key)}"
+      data-start="${escHtml(startAt || '')}" data-due="${escHtml(dueAt || '')}" style="${set ? style : ''}">
+      <input class="due-anchor" readonly tabindex="-1" aria-hidden="true">
+      <button type="button" class="due-chip-open" title="Başlangıç ve bitiş tarihi seç">${ICONS.cal}<span>${escHtml(set ? label : emptyText)}</span></button>
+      ${set ? `<button type="button" class="due-chip-clear" title="Tarihi kaldır">${ICONS.x}</button>` : ''}
+    </span>
+  `;
+}
+
+/** Bir kapsayıcıdaki tüm tarih çiplerini bağlar */
+function bindDueChips(root, onChange) {
+  root.querySelectorAll('.due-chip').forEach(chip => {
+    const key = chip.dataset.dueKey;
+    chip.querySelector('.due-chip-open').addEventListener('click', e => {
+      e.preventDefault(); e.stopPropagation();
+      openRangePicker(
+        chip.querySelector('.due-anchor'),
+        { startAt: chip.dataset.start || null, dueAt: chip.dataset.due || null },
+        range => onChange(key, range),
+      );
+    });
+    chip.querySelector('.due-chip-clear')?.addEventListener('click', e => {
+      e.preventDefault(); e.stopPropagation();
+      onChange(key, { startAt: null, dueAt: null });
+    });
+  });
+}
+
 export function renderModal(container) {
   ensureFileInput();
   const s = state;
-  if (!s.openCardId) { container.innerHTML = ''; return; }
-
-  const found = findRawCard(getActiveLists(), s.openCardId);
-  if (!found) { container.innerHTML = ''; return; }
+  const found = s.openCardId ? findRawCard(getActiveLists(), s.openCardId) : null;
+  if (!found) { closeRangePicker(); closeMemberPicker(); container.innerHTML = ''; return; }
 
   const cv = getOpenCardView(found.card, found.listTitle);
   const pct = cv.checklistPct;
 
+  // Aynı kart yeniden çiziliyorsa scroll konumunu ve yazılmakta olan yorumu koru
+  const prevScrim = container.querySelector('#modal-scrim');
+  const sameCard = prevScrim && prevScrim.dataset.cardId === cv.id;
+  const prevScroll = sameCard ? prevScrim.scrollTop : 0;
+  const prevComment = sameCard ? (container.querySelector('#modal-comment-ta')?.value || '') : '';
+  const prevCheckDraft = sameCard ? (container.querySelector('#checklist-add-inp')?.value || '') : '';
+  const oldImages = sameCard ? collectImages(container) : new Map();
+  if (!sameCard) closeMemberPicker();
+
   container.innerHTML = `
-    <div id="modal-scrim">
+    <div id="modal-scrim" class="${sameCard ? '' : 'is-entering'}" data-card-id="${escHtml(cv.id)}">
       <div class="modal-box">
-        ${cv.hasCover ? `<div class="modal-cover"><img src="${cv.cover}" alt=""></div>` : ''}
+        ${cv.hasCover ? `<div class="modal-cover">${cv.cover ? `<img src="${escHtml(cv.cover)}" alt="">` : ''}</div>` : ''}
 
         <div class="modal-titlebar">
           <div class="modal-title-icon">${ICONS.card}</div>
@@ -84,20 +153,19 @@ export function renderModal(container) {
           <!-- MAIN -->
           <div class="modal-main">
 
-            <!-- Labels + Due -->
+            <!-- Due -->
             <div style="display:flex;gap:22px;flex-wrap:wrap">
               <div>
-                <div class="field-label">Etiketler</div>
-                <div class="label-tags">
-                  ${cv.labels.map(lb => `<span class="label-tag" style="background:${lb.color}">${lb.name}</span>`).join('')}
-                  <button class="add-label-btn">${ICONS.plus}</button>
+                <div class="field-label">Tarih</div>
+                <div class="due-field">
+                  ${dueChipHTML({ key: 'card', startAt: cv.startAt, dueAt: cv.dueAt, label: cv.dueLabel, style: cv.dueStyle, emptyText: 'Tarih ekle' })}
+                  ${cv.hasDue ? `
+                    <label class="due-complete">
+                      <input type="checkbox" id="due-complete-cb" ${cv.dueComplete ? 'checked' : ''}>
+                      Tamamlandı
+                    </label>` : ''}
                 </div>
               </div>
-              ${cv.hasDue ? `
-              <div>
-                <div class="field-label">Son Tarih</div>
-                <span class="due-tag" style="${cv.dueStyle}">${ICONS.cal} ${cv.dueLabel}</span>
-              </div>` : ''}
             </div>
 
             <!-- Description -->
@@ -118,11 +186,21 @@ export function renderModal(container) {
               </div>` : ''}
               <div class="checklist-items" id="checklist-items">
                 ${cv.checklist.map(it => `
-                  <label class="checklist-item">
-                    <input type="checkbox" data-item-id="${it.id}" ${it.done ? 'checked' : ''}>
-                    <span class="item-text ${it.done ? 'done' : ''}">${escHtml(it.text)}</span>
-                    <button class="delete-item-btn" data-item-id="${it.id}" type="button">${ICONS.trash}</button>
-                  </label>
+                  <div class="checklist-item ${it.dueAt ? 'has-due' : ''} ${it.assignee ? 'has-assignee' : ''}">
+                    <label class="checklist-check">
+                      <input type="checkbox" data-item-id="${escHtml(it.id)}" ${it.done ? 'checked' : ''}>
+                      <span class="item-text ${it.done ? 'done' : ''}">${escHtml(it.text)}</span>
+                    </label>
+                    <div class="checklist-meta">
+                    <button type="button" class="item-assignee ${it.assignee ? 'is-set' : ''}" data-item-id="${escHtml(it.id)}"
+                      title="${it.assignee ? escHtml(it.assignee.name) + ' — değiştir' : 'Kişi ata'}"
+                      ${it.assignee ? `style="background:${it.assignee.color}"` : ''}>
+                      ${it.assignee ? escHtml(it.assignee.initials) : ICONS.userPlus}
+                    </button>
+                    ${dueChipHTML({ key: it.id, startAt: it.startAt, dueAt: it.dueAt, label: it.dueLabel, style: it.dueStyle, emptyText: 'Tarih', compact: true })}
+                    </div>
+                    <button class="delete-item-btn" data-item-id="${escHtml(it.id)}" type="button" title="Sil">${ICONS.trash}</button>
+                  </div>
                 `).join('')}
               </div>
               <div class="checklist-add-row">
@@ -139,14 +217,14 @@ export function renderModal(container) {
                   <div class="attachment-thumb">
                     <div class="thumb-img">
                       ${att.type === 'image'
-                        ? `<img src="${att.url}" alt="${escHtml(att.name)}">`
-                        : `<a class="file-thumb" href="${att.url}" download="${escHtml(att.name)}" title="${escHtml(att.name)}">
+                        ? (att.url ? `<img src="${escHtml(att.url)}" alt="${escHtml(att.name)}">` : '')
+                        : `<a class="file-thumb" ${att.url ? `href="${escHtml(att.url)}"` : ''} download="${escHtml(att.name)}" title="${escHtml(att.name)}">
                              ${FILE_ICON}
                              <span class="file-ext">${escHtml(fileExt(att.name))}</span>
                            </a>`}
                     </div>
                     <div class="attachment-name">${escHtml(att.name)}${att.size ? `<span class="attach-size"> · ${fmtSize(att.size)}</span>` : ''}</div>
-                    <button class="remove-attach-btn" data-att-id="${att.id}">${ICONS.x}</button>
+                    <button class="remove-attach-btn" data-att-id="${escHtml(att.id)}">${ICONS.x}</button>
                   </div>
                 `).join('')}
                 <button class="upload-btn" id="upload-btn">
@@ -163,9 +241,9 @@ export function renderModal(container) {
               <div class="field-label">Üyeler</div>
               <div class="rail-members">
                 ${cv.assignees.map(p => `
-                  <span class="rail-avatar" style="background:${p.color}" title="${p.name}">${p.initials}</span>
+                  <button type="button" class="rail-avatar card-member-open" style="background:${p.color}" title="${escHtml(p.name)}">${escHtml(p.initials)}</button>
                 `).join('')}
-                <button class="add-member-btn">${ICONS.plus}</button>
+                <button type="button" class="add-member-btn card-member-open" id="card-members-btn" title="Üye ekle / çıkar">${ICONS.plus}</button>
               </div>
             </div>
 
@@ -173,14 +251,14 @@ export function renderModal(container) {
 
             <!-- Activity -->
             <div style="display:flex;flex-direction:column;gap:0">
-              <div class="field-label">Aktivite</div>
+              <div class="field-label">Aktivite · ${cv.comments.length} yorum</div>
 
               <!-- New comment -->
-              <div style="display:flex;gap:9px;margin-bottom:14px">
-                <span class="avatar" style="width:30px;height:30px;font-size:10.5px;flex:0 0 auto">AY</span>
-                <div style="flex:1;display:flex;flex-direction:column;gap:7px">
-                  <textarea class="comment-textarea" id="modal-comment-ta" rows="2" placeholder="Yorum yaz…"></textarea>
-                  <button class="send-btn" id="comment-send-btn" style="margin-top:0">Gönder</button>
+              <div class="comment-composer">
+                <span class="avatar" style="width:32px;height:32px;font-size:11px;flex:0 0 auto">AY</span>
+                <div class="comment-composer-body">
+                  <textarea class="comment-textarea" id="modal-comment-ta" rows="3" placeholder="Yorum yaz… (Gönder: ⌘/Ctrl + Enter)"></textarea>
+                  <button class="send-btn" id="comment-send-btn">Gönder</button>
                 </div>
               </div>
 
@@ -188,11 +266,11 @@ export function renderModal(container) {
               <div class="comments-list">
                 ${cv.comments.map(cm => `
                   <div class="comment-item">
-                    <span class="avatar" style="width:30px;height:30px;font-size:10.5px;flex:0 0 auto;background:${cm.who.color}">${cm.who.initials}</span>
+                    <span class="avatar" style="width:32px;height:32px;font-size:11px;flex:0 0 auto;background:${cm.who.color}">${escHtml(cm.who.initials)}</span>
                     <div class="comment-body">
                       <div class="comment-header">
                         <span class="comment-name">${escHtml(cm.who.name)}</span>
-                        <span class="comment-time">${cm.time}</span>
+                        <span class="comment-time">${escHtml(cm.time)}</span>
                       </div>
                       <div class="comment-text">${escHtml(cm.text)}</div>
                     </div>
@@ -210,28 +288,85 @@ export function renderModal(container) {
   // Tüm metin alanları "uncontrolled": yazarken setState YOK. Değerler
   // commit anında (blur / buton / kapatma) DOM'dan okunur — focus korunur.
   const cardId = s.openCardId;
+  const scrim = container.querySelector('#modal-scrim');
   const titleInp = container.querySelector('#modal-title-inp');
   const descTa = container.querySelector('#modal-desc-ta');
+  const commentTa = container.querySelector('#modal-comment-ta');
+  const checkInp = container.querySelector('#checklist-add-inp');
+
+  restoreImages(container, oldImages);
+  scrim.scrollTop = prevScroll;
+  commentTa.value = prevComment;
+  checkInp.value = prevCheckDraft;
 
   const commitText = () => {
     const patch = {};
-    if (titleInp && titleInp.value !== cv.title) patch.title = titleInp.value;
-    if (descTa && descTa.value !== cv.desc) patch.desc = descTa.value;
+    if (titleInp.value !== cv.title) patch.title = titleInp.value;
+    if (descTa.value !== cv.desc) patch.desc = descTa.value;
     if (Object.keys(patch).length) updateCard(cardId, patch);
   };
 
   const closeModal = () => { commitText(); setState({ openCardId: null }); };
 
-  const scrim = container.querySelector('#modal-scrim');
   scrim.addEventListener('click', e => { if (e.target === scrim) closeModal(); });
   container.querySelector('#modal-close-btn').addEventListener('click', closeModal);
 
   // Başlık & açıklama — yalnızca blur'da commit (re-render typing'i bölmez)
-  titleInp.addEventListener('blur', commitText);
-  descTa.addEventListener('blur', commitText);
+  titleInp.addEventListener('blur', () => afterPointerUp(commitText));
+  descTa.addEventListener('blur', () => afterPointerUp(commitText));
+  titleInp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); titleInp.blur(); } });
+
+  // Son tarihler (kart + alt görevler)
+  bindDueChips(container, (key, { startAt, dueAt }) => {
+    if (key === 'card') {
+      updateCard(cardId, c => ({ ...c, startAt, dueAt, dueComplete: dueAt ? c.dueComplete : false }));
+    } else {
+      updateCard(cardId, c => ({
+        ...c,
+        checklist: (c.checklist || []).map(it => it.id === key ? { ...it, startAt, dueAt } : it),
+      }));
+    }
+  });
+  container.querySelector('#due-complete-cb')?.addEventListener('change', e => {
+    updateCard(cardId, { dueComplete: e.target.checked });
+  });
+
+  // Kart üyeleri — yalnızca board üyeleri listelenir
+  const members = boardMembers(getActiveBoard());
+  container.querySelectorAll('.card-member-open').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      openMemberPicker(container.querySelector('#card-members-btn'), {
+        title: 'Kart üyeleri',
+        members,
+        selected: cv.assigneeIds,
+        multiple: true,
+        onChange: ids => updateCard(cardId, { assignees: ids }),
+      });
+    });
+  });
+
+  // Alt görev ataması — tek kişi
+  container.querySelectorAll('.item-assignee').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.preventDefault(); e.stopPropagation();
+      const itemId = btn.dataset.itemId;
+      const item = cv.checklist.find(it => it.id === itemId);
+      openMemberPicker(btn, {
+        title: 'Alt görevi ata',
+        members,
+        selected: item?.assignee ? [item.assignee.id] : [],
+        multiple: false,
+        onChange: ids => updateCard(cardId, c => ({
+          ...c,
+          checklist: (c.checklist || []).map(it => it.id === itemId ? { ...it, assignee: ids[0] || null } : it),
+        })),
+      });
+    });
+  });
 
   // Checklist toggle
-  container.querySelectorAll('.checklist-item input[type="checkbox"]').forEach(cb => {
+  container.querySelectorAll('.checklist-check input[type="checkbox"]').forEach(cb => {
     cb.addEventListener('change', () => {
       const itemId = cb.dataset.itemId;
       updateCard(cardId, c => ({
@@ -254,19 +389,20 @@ export function renderModal(container) {
   });
 
   // Checklist ekle — değer input'tan okunur, setState ile yazılmaz
-  const checkInp = container.querySelector('#checklist-add-inp');
   const addCheckItem = () => {
     const t = (checkInp.value || '').trim();
     if (!t) return;
+    checkInp.value = '';
     updateCard(cardId, c => ({
       ...c,
-      checklist: [...(c.checklist || []), { id: 'k' + Date.now(), text: t, done: false }],
+      checklist: [...(c.checklist || []), { id: newId('k'), text: t, done: false, startAt: null, dueAt: null, assignee: null }],
     }));
+    container.querySelector('#checklist-add-inp')?.focus();
   };
   container.querySelector('#checklist-add-btn').addEventListener('click', addCheckItem);
   checkInp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addCheckItem(); } });
 
-  // Görsel yükle
+  // Dosya yükle
   container.querySelector('#upload-btn').addEventListener('click', () => fileInput && fileInput.click());
 
   // Ek kaldır
@@ -274,6 +410,8 @@ export function renderModal(container) {
     btn.addEventListener('click', e => {
       e.preventDefault(); e.stopPropagation();
       const aid = btn.dataset.attId;
+      const att = (found.card.attachments || []).find(a => a.id === aid);
+      if (att?.fileKey) deleteFile(att.fileKey);
       updateCard(cardId, c => ({
         ...c,
         attachments: (c.attachments || []).filter(a => a.id !== aid),
@@ -282,27 +420,25 @@ export function renderModal(container) {
   });
 
   // Yorum — değer textarea'dan okunur
-  const commentTa = container.querySelector('#modal-comment-ta');
-  container.querySelector('#comment-send-btn').addEventListener('click', () => {
+  const sendComment = () => {
     const t = (commentTa.value || '').trim();
     if (!t) return;
+    commentTa.value = '';
     updateCard(cardId, c => ({
       ...c,
-      comments: [{ id: 'cm' + Date.now(), who: 'ay', text: t, time: 'şimdi' }, ...(c.comments || [])],
+      comments: [{ id: newId('cm'), who: CURRENT_USER_ID, text: t, time: 'şimdi' }, ...(c.comments || [])],
     }));
+  };
+  container.querySelector('#comment-send-btn').addEventListener('click', sendComment);
+  commentTa.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendComment(); }
   });
 }
 
 // ---- New Board Modal ----
 const BOARD_COLORS = ['#360185', '#FBC02D', '#10CAB9', '#FE6ABF'];
 
-const ALL_MEMBERS = [
-  { id: 'ay', initials: 'AY', name: 'Ayşe Yılmaz',   color: '#6366f1' },
-  { id: 'mk', initials: 'MK', name: 'Mert Kaya',     color: '#8b5cf6' },
-  { id: 'sb', initials: 'SB', name: 'Selin Bora',    color: '#0ea5a3' },
-  { id: 'ec', initials: 'EÇ', name: 'Emre Çelik',   color: '#f59e0b' },
-  { id: 'da', initials: 'DA', name: 'Deniz Arı',     color: '#f43f5e' },
-];
+const ALL_MEMBERS = Object.entries(PEOPLE).map(([id, p]) => ({ id, ...p }));
 
 export function renderNewBoardModal(container) {
   if (!state.newBoardModal) { container.innerHTML = ''; return; }
@@ -313,36 +449,36 @@ export function renderNewBoardModal(container) {
   let selectedMembers = new Set();
 
   container.innerHTML = `
-    <div id="nb-scrim" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:900;display:flex;align-items:center;justify-content:center">
-      <div style="background:var(--card-bg,#fff);border-radius:14px;padding:28px 32px;width:400px;box-shadow:0 20px 60px rgba(0,0,0,.25);display:flex;flex-direction:column;gap:20px">
+    <div id="nb-scrim" style="position:fixed;inset:0;background:var(--scrim);z-index:900;display:flex;align-items:center;justify-content:center">
+      <div style="background:var(--surface);border-radius:14px;padding:28px 32px;width:min(400px, calc(100vw - 32px));box-sizing:border-box;box-shadow:0 20px 60px rgba(0,0,0,.25);display:flex;flex-direction:column;gap:20px">
         <div style="display:flex;align-items:center;justify-content:space-between">
-          <h2 style="font-size:16px;font-weight:700;margin:0;color:var(--text,#1a1d2e)">Yeni Board</h2>
-          <button id="nb-close" style="background:none;border:none;cursor:pointer;padding:4px;color:var(--text-secondary,#888)">
+          <h2 style="font-size:16px;font-weight:700;margin:0;color:var(--text)">Yeni Board</h2>
+          <button id="nb-close" style="background:none;border:none;cursor:pointer;padding:4px;color:var(--text-muted)">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 6 6 18M6 6l12 12"/></svg>
           </button>
         </div>
 
         <div style="display:flex;flex-direction:column;gap:6px">
-          <label style="font-size:12px;font-weight:600;color:var(--text-secondary,#888)">Board Adı</label>
+          <label style="font-size:12px;font-weight:600;color:var(--text-muted)">Board Adı</label>
           <input id="nb-name-inp" placeholder="Örn: Pazarlama Kampanyası"
-            style="border:1.5px solid var(--border,#e2e6f0);border-radius:8px;padding:9px 12px;font-size:14px;outline:none;background:var(--input-bg,#f8f9fc);color:var(--text,#1a1d2e);width:100%;box-sizing:border-box">
+            style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;outline:none;background:var(--chip-bg);color:var(--text);width:100%;box-sizing:border-box">
         </div>
 
         <div style="display:flex;flex-direction:column;gap:8px">
-          <label style="font-size:12px;font-weight:600;color:var(--text-secondary,#888)">Renk</label>
+          <label style="font-size:12px;font-weight:600;color:var(--text-muted)">Renk</label>
           <div style="display:flex;gap:10px" id="nb-color-row">
             ${BOARD_COLORS.map((c, i) => `
-              <button data-color="${c}" style="width:28px;height:28px;border-radius:50%;background:${c};border:${i === 0 ? '3px solid #1a1d2e' : '3px solid transparent'};cursor:pointer;outline:none;padding:0;transition:border .15s"></button>
+              <button data-color="${c}" style="width:28px;height:28px;border-radius:50%;background:${c};border:${i === 0 ? '3px solid var(--text)' : '3px solid transparent'};cursor:pointer;outline:none;padding:0;transition:border .15s"></button>
             `).join('')}
           </div>
         </div>
 
         <div style="display:flex;flex-direction:column;gap:8px">
-          <label style="font-size:12px;font-weight:600;color:var(--text-secondary,#888)">Üye Ekle</label>
+          <label style="font-size:12px;font-weight:600;color:var(--text-muted)">Üye Ekle</label>
           <div style="display:flex;gap:8px;flex-wrap:wrap" id="nb-members-row">
             ${ALL_MEMBERS.map(m => `
               <button data-member="${m.id}" title="${m.name}"
-                style="display:flex;align-items:center;gap:7px;padding:5px 10px 5px 5px;border-radius:20px;border:2px solid transparent;background:var(--chip-bg,#f2f3f8);cursor:pointer;transition:all .15s;font-size:13px;font-weight:600;color:var(--text,#1a1d2e)">
+                style="display:flex;align-items:center;gap:7px;padding:5px 10px 5px 5px;border-radius:20px;border:2px solid transparent;background:var(--chip-bg);cursor:pointer;transition:all .15s;font-size:13px;font-weight:600;color:var(--text)">
                 <span style="width:26px;height:26px;border-radius:50%;background:${m.color};color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700">${m.initials}</span>
                 ${m.name.split(' ')[0]}
               </button>
@@ -351,8 +487,8 @@ export function renderNewBoardModal(container) {
         </div>
 
         <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:4px">
-          <button id="nb-cancel" style="padding:8px 18px;border-radius:8px;border:1.5px solid var(--border,#e2e6f0);background:none;cursor:pointer;font-size:13px;font-weight:600;color:var(--text,#1a1d2e)">İptal</button>
-          <button id="nb-create" style="padding:8px 18px;border-radius:8px;border:none;background:#360185;color:#fff;cursor:pointer;font-size:13px;font-weight:600">Oluştur</button>
+          <button id="nb-cancel" style="padding:8px 18px;border-radius:8px;border:1.5px solid var(--border);background:none;cursor:pointer;font-size:13px;font-weight:600;color:var(--text)">İptal</button>
+          <button id="nb-create" style="padding:8px 18px;border-radius:8px;border:none;background:var(--accent);color:#fff;cursor:pointer;font-size:13px;font-weight:600">Oluştur</button>
         </div>
       </div>
     </div>
@@ -369,7 +505,7 @@ export function renderNewBoardModal(container) {
     btn.addEventListener('click', () => {
       selectedColor = btn.dataset.color;
       container.querySelectorAll('#nb-color-row [data-color]').forEach(b => {
-        b.style.border = b === btn ? '3px solid #1a1d2e' : '3px solid transparent';
+        b.style.border = b === btn ? '3px solid var(--text)' : '3px solid transparent';
       });
     });
   });
@@ -381,11 +517,11 @@ export function renderNewBoardModal(container) {
       if (selectedMembers.has(id)) {
         selectedMembers.delete(id);
         btn.style.border = '2px solid transparent';
-        btn.style.background = 'var(--chip-bg,#f2f3f8)';
+        btn.style.background = 'var(--chip-bg)';
       } else {
         selectedMembers.add(id);
-        btn.style.border = '2px solid #360185';
-        btn.style.background = 'var(--accent-soft,#eef0fe)';
+        btn.style.border = '2px solid var(--accent)';
+        btn.style.background = 'var(--accent-soft)';
       }
     });
   });
@@ -393,15 +529,15 @@ export function renderNewBoardModal(container) {
   container.querySelector('#nb-create').addEventListener('click', () => {
     const n = (container.querySelector('#nb-name-inp').value || '').trim();
     if (!n) { container.querySelector('#nb-name-inp').focus(); return; }
-    const newId = 'b' + Date.now();
+    const boardId = newId('b');
     setState({
       boards: [...(state.boards || []), {
-        id: newId,
+        id: boardId,
         name: n,
         color: selectedColor,
-        members: [...selectedMembers],
+        members: [...new Set([CURRENT_USER_ID, ...selectedMembers])],
       }],
-      activeBoardId: newId,   // yeni board'a geç (boş — empty state gösterilir)
+      activeBoardId: boardId,   // yeni board'a geç (boş — empty state gösterilir)
       newBoardModal: false,
     });
     container.innerHTML = '';
@@ -415,19 +551,19 @@ export function renderProfileModal(container) {
   if (!state.profileOpen) { container.innerHTML = ''; return; }
   if (container.querySelector('#prof-scrim')) return;
 
-  const INP = `border:1.5px solid var(--border,#e2e6f0);border-radius:8px;padding:9px 12px;font-size:14px;outline:none;background:var(--input-bg,#f8f9fc);color:var(--text,#1a1d2e);width:100%;box-sizing:border-box`;
-  const LABEL = `font-size:12px;font-weight:600;color:var(--text-secondary,#888);display:block;margin-bottom:5px`;
+  const INP = `border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;outline:none;background:var(--chip-bg);color:var(--text);width:100%;box-sizing:border-box`;
+  const LABEL = `font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:5px`;
   const SECTION = `display:flex;flex-direction:column;gap:6px`;
-  const DIVIDER = `<div style="height:1px;background:var(--border,#e2e6f0);margin:4px 0"></div>`;
+  const DIVIDER = `<div style="height:1px;background:var(--border);margin:4px 0"></div>`;
 
   container.innerHTML = `
-    <div id="prof-scrim" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:900;display:flex;align-items:center;justify-content:center">
-      <div style="background:var(--card-bg,#fff);border-radius:18px;width:560px;max-height:90vh;overflow-y:auto;box-shadow:0 24px 72px rgba(0,0,0,.28);display:flex;flex-direction:column">
+    <div id="prof-scrim" style="position:fixed;inset:0;background:var(--scrim);z-index:900;display:flex;align-items:center;justify-content:center">
+      <div style="background:var(--surface);border-radius:18px;width:min(560px, calc(100vw - 24px));max-height:90vh;overflow-y:auto;box-shadow:0 24px 72px rgba(0,0,0,.28);display:flex;flex-direction:column">
 
         <!-- Header -->
         <div style="display:flex;align-items:center;justify-content:space-between;padding:24px 28px 20px">
-          <h2 style="font-size:17px;font-weight:700;margin:0;color:var(--text,#1a1d2e)">Hesap & Profil</h2>
-          <button id="prof-close" style="background:none;border:none;cursor:pointer;padding:4px;color:var(--text-secondary,#888)">
+          <h2 style="font-size:17px;font-weight:700;margin:0;color:var(--text)">Hesap & Profil</h2>
+          <button id="prof-close" style="background:none;border:none;cursor:pointer;padding:4px;color:var(--text-muted)">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 6 6 18M6 6l12 12"/></svg>
           </button>
         </div>
@@ -435,33 +571,33 @@ export function renderProfileModal(container) {
         <div style="padding:0 28px 28px;display:flex;flex-direction:column;gap:24px">
 
           <!-- Avatar + isim -->
-          <div style="display:flex;align-items:center;gap:18px;padding:20px;background:var(--board-bg,#f4f5fb);border-radius:12px">
+          <div style="display:flex;align-items:center;gap:18px;padding:20px;background:var(--canvas);border-radius:12px">
             <div style="position:relative;flex:0 0 auto">
-              <span style="width:72px;height:72px;border-radius:50%;background:#360185;color:#fff;font-size:24px;font-weight:700;display:flex;align-items:center;justify-content:center">AY</span>
-              <button style="position:absolute;bottom:0;right:0;width:24px;height:24px;border-radius:50%;background:#360185;border:2px solid var(--card-bg,#fff);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">
+              <span style="width:72px;height:72px;border-radius:50%;background:var(--accent);color:#fff;font-size:24px;font-weight:700;display:flex;align-items:center;justify-content:center">AY</span>
+              <button style="position:absolute;bottom:0;right:0;width:24px;height:24px;border-radius:50%;background:var(--accent);border:2px solid var(--surface);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
               </button>
             </div>
             <div>
-              <div style="font-size:20px;font-weight:700;color:var(--text,#1a1d2e)">Ayşe Yılmaz</div>
-              <div style="font-size:13px;color:var(--text-secondary,#888);margin-top:2px">ayse@acmestudio.io</div>
-              <span style="display:inline-block;margin-top:6px;font-size:11px;font-weight:700;color:#360185;background:#eef0fe;padding:3px 10px;border-radius:20px">Premium Plan</span>
+              <div style="font-size:20px;font-weight:700;color:var(--text)">Ayşe Yılmaz</div>
+              <div id="prof-email-label" style="font-size:13px;color:var(--text-muted);margin-top:2px">${escHtml(state.userEmail || '')}</div>
+              <span style="display:inline-block;margin-top:6px;font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-soft);padding:3px 10px;border-radius:20px">Premium Plan</span>
             </div>
           </div>
 
           <!-- E-posta -->
           <div style="${SECTION}">
-            <div style="font-size:14px;font-weight:700;color:var(--text,#1a1d2e);margin-bottom:2px">E-posta Adresi</div>
+            <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:2px">E-posta Adresi</div>
             <label style="${LABEL}">Mevcut e-posta</label>
             <input id="prof-email" value="${escHtml(state.userEmail || '')}" style="${INP}">
-            <button id="prof-save-email" style="align-self:flex-end;padding:7px 16px;border-radius:8px;border:none;background:#360185;color:#fff;cursor:pointer;font-size:13px;font-weight:600;margin-top:2px">Güncelle</button>
+            <button id="prof-save-email" style="align-self:flex-end;padding:7px 16px;border-radius:8px;border:none;background:var(--accent);color:#fff;cursor:pointer;font-size:13px;font-weight:600;margin-top:2px">Güncelle</button>
           </div>
 
           ${DIVIDER}
 
           <!-- Şifre -->
           <div style="${SECTION}">
-            <div style="font-size:14px;font-weight:700;color:var(--text,#1a1d2e);margin-bottom:2px">Şifre</div>
+            <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:2px">Şifre</div>
             <label style="${LABEL}">Mevcut şifre</label>
             <input id="prof-pw-current" type="password" placeholder="••••••••" style="${INP}">
             <label style="${LABEL};margin-top:8px">Yeni şifre</label>
@@ -469,24 +605,13 @@ export function renderProfileModal(container) {
             <label style="${LABEL};margin-top:8px">Yeni şifre (tekrar)</label>
             <input id="prof-pw-confirm" type="password" placeholder="••••••••" style="${INP}">
             <div id="prof-pw-msg" style="font-size:12px;min-height:16px;margin-top:2px"></div>
-            <button id="prof-save-pw" style="align-self:flex-end;padding:7px 16px;border-radius:8px;border:none;background:#360185;color:#fff;cursor:pointer;font-size:13px;font-weight:600">Şifreyi Güncelle</button>
-          </div>
-
-          ${DIVIDER}
-
-          <!-- Şifre Sıfırlama -->
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-radius:10px;border:1.5px solid var(--border,#e2e6f0)">
-            <div>
-              <div style="font-size:14px;font-weight:600;color:var(--text,#1a1d2e)">Şifre Sıfırlama Bağlantısı</div>
-              <div style="font-size:12px;color:var(--text-secondary,#888);margin-top:2px">E-postana sıfırlama bağlantısı gönderilir</div>
-            </div>
-            <button id="prof-reset-pw" style="padding:7px 14px;border-radius:8px;border:1.5px solid var(--border,#e2e6f0);background:none;cursor:pointer;font-size:13px;font-weight:600;color:var(--text,#1a1d2e);white-space:nowrap">Gönder</button>
+            <button id="prof-save-pw" style="align-self:flex-end;padding:7px 16px;border-radius:8px;border:none;background:var(--accent);color:#fff;cursor:pointer;font-size:13px;font-weight:600">Şifreyi Güncelle</button>
           </div>
 
           ${DIVIDER}
 
           <!-- Çıkış Yap -->
-          <button id="prof-logout" style="display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;border-radius:10px;border:1.5px solid #fecaca;background:#fff5f5;color:#ef4444;cursor:pointer;font-size:14px;font-weight:700;width:100%">
+          <button id="prof-logout" style="display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;border-radius:10px;border:1.5px solid rgba(239,68,68,.35);background:rgba(239,68,68,.08);color:#ef4444;cursor:pointer;font-size:14px;font-weight:700;width:100%">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
             Çıkış Yap
           </button>
@@ -504,11 +629,13 @@ export function renderProfileModal(container) {
   container.querySelector('#prof-save-email').addEventListener('click', () => {
     const v = container.querySelector('#prof-email').value.trim();
     if (!v || !v.includes('@')) return;
-    state.userEmail = v;  // re-render tetiklemeden kaydet (modal açık kalsın)
+    // Profil modalı build-once olduğu için setState onu yeniden çizmez (açık kalır)
+    setState({ userEmail: v });
+    container.querySelector('#prof-email-label').textContent = v;
     const btn = container.querySelector('#prof-save-email');
     btn.textContent = 'Kaydedildi ✓';
     btn.style.background = '#10b981';
-    setTimeout(() => { btn.textContent = 'Güncelle'; btn.style.background = '#360185'; }, 2000);
+    setTimeout(() => { btn.textContent = 'Güncelle'; btn.style.background = 'var(--accent)'; }, 2000);
   });
 
   // Şifre güncelle
@@ -524,15 +651,6 @@ export function renderProfileModal(container) {
     container.querySelector('#prof-pw-current').value = '';
     container.querySelector('#prof-pw-new').value = '';
     container.querySelector('#prof-pw-confirm').value = '';
-  });
-
-  // Şifre sıfırlama
-  container.querySelector('#prof-reset-pw').addEventListener('click', () => {
-    const btn = container.querySelector('#prof-reset-pw');
-    btn.textContent = 'Gönderildi ✓';
-    btn.style.color = '#10b981';
-    btn.style.borderColor = '#10b981';
-    setTimeout(() => { btn.textContent = 'Gönder'; btn.style.color = ''; btn.style.borderColor = ''; }, 3000);
   });
 
   // Çıkış — login ekranına dön
