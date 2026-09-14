@@ -1754,6 +1754,8 @@ body.is-dragging-card .card-inserter { visibility: hidden; }
 .filter-clear:disabled { opacity: .5; cursor: default; }
 
 /* ---- İzleyici (viewer) modu: düzenleme kontrollerini gizle ---- */
+/* Kartlar arası boşluğu normalde "+" ekleme çizgisi veriyor; izleyicide o yok */
+#board-area.is-readonly .list-cards { gap: 12px; padding-bottom: 12px; }
 #modal-scrim.is-readonly .delete-item-btn,
 #modal-scrim.is-readonly .checklist-add-row,
 #modal-scrim.is-readonly .upload-btn,
