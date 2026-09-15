@@ -3,19 +3,28 @@
 // ============================================================
 import { state, setState } from './state.js';
 import { selectBoard, renameBoard, deleteBoard, canAdmin, isOwner } from './store.js';
-import { cssColor, escHtml, compactQuery, ICONS, currentUserDisplay, captureDrafts } from './helpers.js';
+import { cssColor, escHtml, compactQuery, ICONS, currentUserDisplay, captureDrafts, initialsOf, readableTextOn } from './helpers.js';
 import { openSettings, closeSettings } from './settings.js';
 
 const EDIT_ICON = ICONS.edit13;
 const TRASH_ICON = ICONS.trash13;
 const CHECK_ICON = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+// Sol üstteki çalışma alanı: rozetteki harf her zaman bu addan türetilir
+const WORKSPACE_NAME = 'KYNC';
+
 const X_ICON = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>`;
+
+/** Board'un rengi üzerinde baş harfi: daraltılmış sidebar'da da hangi board olduğu anlaşılsın */
+function boardTile(b) {
+  const bg = cssColor(b.color);
+  return `<span class="board-tile" style="background:${bg};color:${readableTextOn(bg)}" aria-hidden="true">${escHtml(initialsOf(b.name).slice(0, 1))}</span>`;
+}
 
 export function renderSidebar(container) {
   const s = state;
   const compact = compactQuery.matches;
   const expanded = compact || s.sideExpanded;
-  const w = compact ? '' : (expanded ? '258px' : '74px');
+  const w = compact ? '' : (expanded ? '256px' : '64px');
 
   // Sidebar'ı ilgilendirmeyen state değişikliklerinde DOM'a dokunma: hem
   // gereksiz iş hem de çekmece geçiş animasyonunu bozuyor
@@ -31,18 +40,18 @@ export function renderSidebar(container) {
   // Board adı düzenlenirken board listesi sunucudan yenilenirse yazılan kaybolmasın
   const restoreDrafts = captureDrafts(container, '#edit-board-inp');
   container.innerHTML = `
-    <aside id="sidebar" style="${w ? `width:${w}` : ''}">
+    <aside id="sidebar" class="${expanded ? '' : 'is-collapsed'}" style="${w ? `width:${w}` : ''}">
       <div class="sidebar-header">
-        <span class="workspace-icon">A</span>
+        <span class="workspace-icon" aria-hidden="true">${escHtml(initialsOf(WORKSPACE_NAME).slice(0, 1))}</span>
         ${expanded ? `
           <div class="workspace-info">
-            <div class="workspace-name">KYNC</div>
-            <div class="workspace-plan">Premium çalışma alanı</div>
+            <div class="workspace-name">${escHtml(WORKSPACE_NAME)}</div>
+            <div class="workspace-plan">Çalışma alanı</div>
           </div>` : ''}
       </div>
 
-      <div class="sidebar-nav">
-        ${expanded ? `<div class="sidebar-section-label">Boards</div>` : ''}
+      <nav class="sidebar-nav" aria-label="Board'lar">
+        ${expanded ? `<div class="sidebar-section-label">Board'lar</div>` : ''}
         <div class="sidebar-boards" id="sidebar-boards">
           ${boards.map(b => {
             const isActive = b.id === activeId;
@@ -50,9 +59,9 @@ export function renderSidebar(container) {
 
             if (isEditing && expanded) {
               return `
-                <div class="board-btn active" style="gap:6px;padding:6px 8px">
-                  <span class="board-dot" style="background:${cssColor(b.color)};flex-shrink:0"></span>
-                  <input id="edit-board-inp" value="${escHtml(b.name)}" style="flex:1;min-width:0;border:none;outline:none;background:transparent;font-size:13px;font-weight:600;color:var(--text)">
+                <div class="board-btn-row active-row is-editing">
+                  ${boardTile(b)}
+                  <input id="edit-board-inp" class="board-edit-input" value="${escHtml(b.name)}" aria-label="Board adı">
                   <button class="board-action-btn confirm-edit" data-id="${b.id}" title="Kaydet">${CHECK_ICON}</button>
                   <button class="board-action-btn cancel-edit" title="İptal">${X_ICON}</button>
                 </div>
@@ -61,13 +70,14 @@ export function renderSidebar(container) {
 
             return `
               <div class="board-btn-row ${isActive ? 'active-row' : ''}">
-                <button class="board-btn ${isActive ? 'active' : ''} board-select" data-id="${b.id}" style="flex:1;min-width:0">
-                  <span class="board-dot" style="background:${cssColor(b.color)}"></span>
+                <button class="board-btn ${isActive ? 'active' : ''} board-select" data-id="${b.id}"
+                  ${expanded ? '' : `title="${escHtml(b.name)}"`} aria-label="${escHtml(b.name)}" ${isActive ? 'aria-current="page"' : ''}>
+                  ${boardTile(b)}
                   ${expanded ? `<span class="board-name">${escHtml(b.name)}</span>${b.starred ? `<span class="board-star" title="Yıldızlı" aria-label="Yıldızlı">★</span>` : ''}` : ''}
                 </button>
                 ${expanded && canAdmin(b) ? `
                   <div class="board-actions">
-                    <button class="board-action-btn edit-board-btn" data-id="${b.id}" title="İsim değiştir">${EDIT_ICON}</button>
+                    <button class="board-action-btn edit-board-btn" data-id="${b.id}" title="Yeniden adlandır">${EDIT_ICON}</button>
                     ${isOwner(b) ? `<button class="board-action-btn delete-board-btn" data-id="${b.id}" title="Sil">${TRASH_ICON}</button>` : ''}
                   </div>
                 ` : ''}
@@ -75,15 +85,15 @@ export function renderSidebar(container) {
             `;
           }).join('')}
         </div>
-        <button class="add-board-btn" id="add-board-btn">
+        <button class="add-board-btn" id="add-board-btn" ${expanded ? '' : 'title="Yeni board"'} aria-label="Yeni board">
           ${ICONS.plus}
-          ${expanded ? `<span style="white-space:nowrap">Yeni Board</span>` : ''}
+          ${expanded ? `<span>Yeni board</span>` : ''}
         </button>
-      </div>
+      </nav>
 
-      <div class="sidebar-footer ${expanded ? '' : 'is-collapsed'}">
-        <button class="sidebar-user-btn" id="sidebar-user-btn" title="Profile git">
-          <span class="avatar" style="width:34px;height:34px;font-size:12.5px;font-weight:700${me.color ? `;background:${cssColor(me.color)}` : ''}">${escHtml(me.initials)}</span>
+      <div class="sidebar-footer">
+        <button class="sidebar-user-btn" id="sidebar-user-btn" title="${expanded ? 'Hesap ve profil' : escHtml(me.name)}" aria-label="Hesap ve profil">
+          <span class="avatar sidebar-avatar" ${me.color ? `style="background:${cssColor(me.color)}"` : ''}>${escHtml(me.initials)}</span>
           ${expanded ? `
             <div class="user-info">
               <div class="user-name">${escHtml(me.name)}</div>

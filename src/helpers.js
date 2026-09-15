@@ -63,6 +63,14 @@ export function cssColor(value, fallback = '#6366f1') {
   return /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value ?? '') ? value : fallback;
 }
 
+/** Renkli zemin üzerindeki yazı için okunaklı renk (sarı gibi açık renklerde koyu yazı) */
+export function readableTextOn(hex) {
+  let h = cssColor(hex).slice(1, 7);
+  if (h.length === 3) h = [...h].map(c => c + c).join('');
+  const [r, g, b] = [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16));
+  return (r * 299 + g * 587 + b * 114) / 1000 > 160 ? '#191b2c' : '#ffffff';
+}
+
 /** Dar ekran (tablet/telefon): sidebar çekmece olur */
 export const compactQuery = window.matchMedia('(max-width: 900px)');
 
@@ -209,6 +217,7 @@ export function findRawCard(lists, id) {
 /** SVG ikonları — sıkça kullanılanlar */
 export const ICONS = {
   menu: `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>`,
+  panel: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg>`,
   plus: `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>`,
   plus18: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>`,
   plus22: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>`,

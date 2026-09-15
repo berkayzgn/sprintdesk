@@ -94,7 +94,7 @@ function renderTopbar(topbar) {
     topbar.__built = true;
     topbar.innerHTML = `
       <div class="topbar-left">
-        <button class="sidebar-toggle topbar-menu-btn" id="topbar-menu-btn" title="Menü">${ICONS.menu}</button>
+        <button class="topbar-menu-btn" id="topbar-menu-btn"></button>
         <div class="board-title-row">
           <h1 id="board-title">${escHtml(title)}</h1>
           <button class="star-btn" id="star-btn" title="Yıldızla" aria-pressed="false">${ICONS.star}</button>
@@ -152,6 +152,7 @@ function renderTopbar(topbar) {
     if (inp && document.activeElement !== inp && inp.value !== state.search) inp.value = state.search;
   }
   renderTopbarMembers(topbar.querySelector('#members-row'), active);
+  syncMenuButton(topbar.querySelector('#topbar-menu-btn'));
 
   // Board değişince önceki board'a ait popover'lar kapansın
   if (topbar.__boardId !== state.activeBoardId) {
@@ -177,6 +178,20 @@ function renderTopbar(topbar) {
   countEl.textContent = count || '';
   countEl.classList.toggle('hidden', !count);
   topbar.querySelector('#filter-btn').classList.toggle('is-active', count > 0);
+}
+
+/** Masaüstünde sidebar'ı daraltır/genişletir, dar ekranda çekmeceyi açar */
+function syncMenuButton(btn) {
+  const compact = compactQuery.matches;
+  const label = compact ? 'Menü' : (state.sideExpanded ? 'Kenar çubuğunu daralt' : 'Kenar çubuğunu genişlet');
+  const mode = compact ? 'menu' : 'panel';
+  if (btn.dataset.mode !== mode) {
+    btn.dataset.mode = mode;
+    btn.innerHTML = ICONS[mode];
+  }
+  btn.title = label;
+  btn.setAttribute('aria-label', label);
+  btn.setAttribute('aria-expanded', String(compact ? !!state.navOpen : !!state.sideExpanded));
 }
 
 /** Board üyeleri (en fazla 5 avatar + fazlası) */
@@ -313,7 +328,7 @@ function renderBoardArea(boardEl) {
       <div class="add-list-form">
         <input class="add-list-inp" placeholder="Liste başlığı…">
         <div class="add-list-actions">
-          <button class="btn-add-list submit-list-btn">Liste Ekle</button>
+          <button class="btn-add-list submit-list-btn">Liste ekle</button>
           <button class="btn-cancel cancel-list-btn">${ICONS.x}</button>
         </div>
       </div>
@@ -328,7 +343,7 @@ function renderBoardArea(boardEl) {
     addListCol.querySelector('.submit-list-btn').addEventListener('click', () => submitAddList(inp));
     addListCol.querySelector('.cancel-list-btn').addEventListener('click', () => setState({ addingList: false }));
   } else {
-    addListCol.innerHTML = `<button class="add-list-trigger" id="add-list-trigger-btn">${ICONS.plus18} Yeni Liste Ekle</button>`;
+    addListCol.innerHTML = `<button class="add-list-trigger" id="add-list-trigger-btn">${ICONS.plus18} Yeni liste ekle</button>`;
     boardEl.appendChild(addListCol);
     addListCol.querySelector('#add-list-trigger-btn').addEventListener('click', () => setState({ addingList: true }));
   }
@@ -362,7 +377,7 @@ function buildInserterHTML(beforeCardId, isTop) {
 }
 
 function buildFooterHTML(list) {
-  return `<button class="add-card-btn" data-list-id="${list.id}">${PLUS16} Kart Ekle</button>`;
+  return `<button class="add-card-btn" data-list-id="${list.id}">${PLUS16} Kart ekle</button>`;
 }
 
 function buildCardHTML(card) {
@@ -444,8 +459,8 @@ function attachListHeaderEvents(section, list, isEditingList) {
     menu.className = 'list-menu-popover';
     menu.dataset.listId = list.id;
     menu.innerHTML = `
-      <button class="list-menu-item" data-act="rename">${EDIT_ICON} İsmi Değiştir</button>
-      <button class="list-menu-item danger" data-act="delete">${TRASH_ICON} Listeyi Sil</button>
+      <button class="list-menu-item" data-act="rename">${EDIT_ICON} Yeniden adlandır</button>
+      <button class="list-menu-item danger" data-act="delete">${TRASH_ICON} Listeyi sil</button>
     `;
     document.body.appendChild(menu);
 
@@ -601,12 +616,12 @@ function openCardMenu(btn, cardId) {
   menu.className = 'list-menu-popover';
   menu.dataset.cardId = cardId;
   menu.innerHTML = `
-    <button class="list-menu-item" data-act="rename">${EDIT_ICON} İsmi Değiştir</button>
+    <button class="list-menu-item" data-act="rename">${EDIT_ICON} Yeniden adlandır</button>
     <div class="card-color-row">
       ${CARD_COLORS.map(c => `<button class="card-color-swatch" data-color="${c}" style="background:${c}" title="Renk"></button>`).join('')}
       <button class="card-color-swatch none" data-color="" title="Renksiz">${ICONS.x}</button>
     </div>
-    <button class="list-menu-item danger" data-act="delete">${TRASH_ICON} Kartı Sil</button>
+    <button class="list-menu-item danger" data-act="delete">${TRASH_ICON} Kartı sil</button>
   `;
   document.body.appendChild(menu);
 

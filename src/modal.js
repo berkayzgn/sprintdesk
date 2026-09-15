@@ -179,7 +179,7 @@ export function renderModal(container) {
             <!-- Checklist -->
             <div>
               <div class="section-heading">
-                ${ICONS.check}<span>Alt Görevler</span>
+                ${ICONS.check}<span>Alt görevler</span>
                 <span class="count">${cv.checklistDone}/${cv.checklistTotal}</span>
               </div>
               ${cv.hasChecklist ? `
@@ -437,14 +437,14 @@ export function renderNewBoardModal(container) {
     <div id="nb-scrim" style="position:fixed;inset:0;background:var(--scrim);z-index:900;display:flex;align-items:center;justify-content:center">
       <div style="background:var(--surface);border-radius:14px;padding:28px 32px;width:min(420px, calc(100vw - 32px));box-sizing:border-box;box-shadow:0 20px 60px rgba(0,0,0,.25);display:flex;flex-direction:column;gap:20px">
         <div style="display:flex;align-items:center;justify-content:space-between">
-          <h2 style="font-size:16px;font-weight:700;margin:0;color:var(--text)">Yeni Board</h2>
+          <h2 style="font-size:16px;font-weight:700;margin:0;color:var(--text)">Yeni board</h2>
           <button id="nb-close" style="background:none;border:none;cursor:pointer;padding:4px;color:var(--text-muted)">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 6 6 18M6 6l12 12"/></svg>
           </button>
         </div>
 
         <div style="display:flex;flex-direction:column;gap:6px">
-          <label for="nb-name-inp" style="font-size:12px;font-weight:600;color:var(--text-muted)">Board Adı</label>
+          <label for="nb-name-inp" style="font-size:12px;font-weight:600;color:var(--text-muted)">Board adı</label>
           <input id="nb-name-inp" placeholder="Örn: Pazarlama Kampanyası" maxlength="120"
             style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;outline:none;background:var(--chip-bg);color:var(--text);width:100%;box-sizing:border-box">
         </div>
@@ -459,7 +459,7 @@ export function renderNewBoardModal(container) {
         </div>
 
         <div style="display:flex;flex-direction:column;gap:8px">
-          <label for="nb-email-inp" style="font-size:12px;font-weight:600;color:var(--text-muted)">Üye Ekle <span style="font-weight:500">(isteğe bağlı)</span></label>
+          <label for="nb-email-inp" style="font-size:12px;font-weight:600;color:var(--text-muted)">Üye ekle <span style="font-weight:500">(isteğe bağlı)</span></label>
           <form id="nb-email-form" class="nb-email-row" novalidate>
             <input id="nb-email-inp" type="email" placeholder="ekip@firma.com" autocomplete="off">
             <button type="submit">Ekle</button>
@@ -565,7 +565,7 @@ export function renderProfileModal(container) {
 
         <!-- Header -->
         <div style="display:flex;align-items:center;justify-content:space-between;padding:24px 28px 20px">
-          <h2 style="font-size:17px;font-weight:700;margin:0;color:var(--text)">Hesap & Profil</h2>
+          <h2 style="font-size:17px;font-weight:700;margin:0;color:var(--text)">Hesap ve profil</h2>
           <button id="prof-close" style="background:none;border:none;cursor:pointer;padding:4px;color:var(--text-muted)">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 6 6 18M6 6l12 12"/></svg>
           </button>
@@ -601,7 +601,7 @@ export function renderProfileModal(container) {
 
           <!-- E-posta -->
           <div style="${SECTION}">
-            <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:2px">E-posta Adresi</div>
+            <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:2px">E-posta adresi</div>
             <label style="${LABEL}">Mevcut e-posta</label>
             <input id="prof-email" type="email" value="${escHtml(state.userEmail || '')}" style="${INP};opacity:.7" readonly>
             <!-- E-posta değişikliği onay maili gerektirir; sunucuda SMTP ayarlanınca açılacak -->
@@ -620,7 +620,7 @@ export function renderProfileModal(container) {
             <label style="${LABEL};margin-top:8px">Yeni şifre (tekrar)</label>
             <input id="prof-pw-confirm" type="password" placeholder="Yeni şifreni tekrar gir" style="${INP}">
             <div id="prof-pw-msg" style="font-size:12px;min-height:16px;margin-top:2px"></div>
-            <button id="prof-save-pw" style="align-self:flex-end;padding:7px 16px;border-radius:8px;border:none;background:var(--accent);color:#fff;cursor:pointer;font-size:13px;font-weight:600">Şifreyi Güncelle</button>
+            <button id="prof-save-pw" style="align-self:flex-end;padding:7px 16px;border-radius:8px;border:none;background:var(--accent);color:#fff;cursor:pointer;font-size:13px;font-weight:600">Şifreyi güncelle</button>
           </div>
 
           ${DIVIDER}
@@ -628,14 +628,14 @@ export function renderProfileModal(container) {
           <!-- Çıkış Yap -->
           <button id="prof-logout" style="display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;border-radius:10px;border:1.5px solid rgba(239,68,68,.35);background:rgba(239,68,68,.08);color:#ef4444;cursor:pointer;font-size:14px;font-weight:700;width:100%">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-            Çıkış Yap
+            Çıkış yap
           </button>
 
           <!-- Hesabı Sil -->
           <div class="danger-zone">
             <div class="danger-zone-head">
               <div>
-                <div class="danger-zone-title">Hesabı Sil</div>
+                <div class="danger-zone-title">Hesabı sil</div>
                 <div class="danger-zone-desc">Hesabın ve profilin kalıcı olarak silinir. Bu işlem geri alınamaz.</div>
               </div>
               <button type="button" id="prof-delete-start" class="danger-btn-outline">Hesabımı sil</button>

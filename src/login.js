@@ -15,7 +15,7 @@ const COPY = {
   login: {
     title: 'Tekrar hoş geldin',
     sub: 'Çalışma alanına giriş yap',
-    submit: 'Giriş Yap',
+    submit: 'Giriş yap',
     busy: 'Giriş yapılıyor…',
     switchText: 'Hesabın yok mu?',
     switchLink: 'Kayıt ol',
@@ -25,7 +25,7 @@ const COPY = {
   register: {
     title: 'Hesap oluştur',
     sub: 'Birkaç saniyede ekibinle çalışmaya başla',
-    submit: 'Kayıt Ol',
+    submit: 'Kayıt ol',
     busy: 'Hesap oluşturuluyor…',
     switchText: 'Zaten hesabın var mı?',
     switchLink: 'Giriş yap',
