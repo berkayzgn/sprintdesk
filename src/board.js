@@ -7,7 +7,7 @@
 // zaman aktif yazımı bölmez (focus korunur).
 // ============================================================
 import { state, setState, getActiveBoard, getActiveLists } from './state.js';
-import { getCardView, escHtml, boardMembers, collectImages, restoreImages, captureDrafts, compactQuery, ICONS } from './helpers.js';
+import { getCardView, escHtml, cssColor, boardMembers, collectImages, restoreImages, captureDrafts, compactQuery, ICONS } from './helpers.js';
 import {
   moveCard, createCard, updateCard, deleteCard, createList, renameList as saveListName, deleteList as removeList,
   canEdit, toggleStar,
@@ -187,7 +187,7 @@ function renderTopbarMembers(row, board) {
   row.dataset.key = key;
   const shown = members.slice(0, 5);
   row.innerHTML = shown.map(p =>
-    `<span class="member-avatar" style="background:${p.color}" title="${escHtml(p.name)}">${escHtml(p.initials)}</span>`
+    `<span class="member-avatar" style="background:${cssColor(p.color)}" title="${escHtml(p.name)}">${escHtml(p.initials)}</span>`
   ).join('') + (members.length > shown.length ? `<span class="member-overflow">+${members.length - shown.length}</span>` : '');
   row.title = members.map(m => m.name).join(', ');
 }
@@ -374,7 +374,7 @@ function buildCardHTML(card) {
   const commentHTML = card.hasComments ? `<span class="comment-badge">${ICONS.chat14} ${card.commentCount}</span>` : '';
   const attachHTML = card.hasAttach ? `<span class="attach-badge">${ICONS.attach14} ${card.attachCount}</span>` : '';
   const assigneesHTML = card.assignees.length
-    ? `<div class="assignees-row">${card.assignees.map(p => `<span class="card-avatar" style="background:${p.color}" title="${escHtml(p.name)}">${p.initials}</span>`).join('')}</div>`
+    ? `<div class="assignees-row">${card.assignees.map(p => `<span class="card-avatar" style="background:${cssColor(p.color)}" title="${escHtml(p.name)}">${escHtml(p.initials)}</span>`).join('')}</div>`
     : '';
   const metaHTML = card.hasMeta ? `
     <div class="card-meta">
@@ -383,9 +383,9 @@ function buildCardHTML(card) {
       ${assigneesHTML}
     </div>` : '';
 
-  const colorStrip = card.color ? `<div class="card-color-strip" style="background:${card.color}"></div>` : '';
+  const colorStrip = card.color ? `<div class="card-color-strip" style="background:${cssColor(card.color)}"></div>` : '';
   const labelsHTML = card.hasLabels
-    ? `<div class="card-labels">${card.labels.map(l => `<span class="card-label ${l.name ? '' : 'is-empty'}" style="background:${l.color}" title="${escHtml(l.name)}">${escHtml(l.name)}</span>`).join('')}</div>`
+    ? `<div class="card-labels">${card.labels.map(l => `<span class="card-label ${l.name ? '' : 'is-empty'}" style="background:${cssColor(l.color)}" title="${escHtml(l.name)}">${escHtml(l.name)}</span>`).join('')}</div>`
     : '';
   const titleHTML = card.editing
     ? `<input class="card-title-input" value="${escHtml(card.title)}">`

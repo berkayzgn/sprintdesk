@@ -6,7 +6,7 @@
 // ve geçicidir; board değişince sıfırlanır.
 // ============================================================
 import { state, setState, getActiveBoard } from './state.js';
-import { escHtml, boardMembers, ICONS } from './helpers.js';
+import { cssColor, escHtml, boardMembers, ICONS } from './helpers.js';
 import { parseISODate } from './dates.js';
 
 export const NO_FILTERS = { members: [], labels: [], due: [] };
@@ -88,13 +88,13 @@ export function openFilterPopover(anchor) {
         <div class="member-picker-label">Üyeler</div>
         <div class="member-picker-list">
           ${members.map(m => option('members', m.id, `
-            <span class="member-picker-avatar" style="background:${m.color}">${escHtml(m.initials)}</span>
+            <span class="member-picker-avatar" style="background:${cssColor(m.color)}">${escHtml(m.initials)}</span>
             <span class="member-picker-name">${escHtml(m.id === me ? `${m.name} (ben)` : m.name)}</span>`, f.members.includes(m.id))).join('')}
         </div>
         ${labels.length ? `
           <div class="member-picker-label">Etiketler</div>
           <div class="member-picker-list">
-            ${labels.map(l => option('labels', l.id, `<span class="label-swatch" style="background:${l.color}">${escHtml(l.name)}</span>`, f.labels.includes(l.id))).join('')}
+            ${labels.map(l => option('labels', l.id, `<span class="label-swatch" style="background:${cssColor(l.color)}">${escHtml(l.name)}</span>`, f.labels.includes(l.id))).join('')}
           </div>` : ''}
         <div class="member-picker-label">Tarih</div>
         <div class="member-picker-list">

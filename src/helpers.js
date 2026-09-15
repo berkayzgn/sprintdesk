@@ -54,6 +54,15 @@ export function escHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
+/**
+ * Veritabanından gelen rengi style="" içine basmadan önce doğrular. Renk
+ * alanları API üzerinden serbest metin olarak yazılabildiği için doğrudan
+ * basılırsa `"><img onerror=…>` gibi değerlerle XSS'e kapı açar.
+ */
+export function cssColor(value, fallback = '#6366f1') {
+  return /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value ?? '') ? value : fallback;
+}
+
 /** Dar ekran (tablet/telefon): sidebar çekmece olur */
 export const compactQuery = window.matchMedia('(max-width: 900px)');
 

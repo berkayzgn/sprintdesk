@@ -7,7 +7,7 @@
 // uygulanır; buradaki koşullar yalnızca doğru butonları göstermek için.
 // ============================================================
 import { state } from './state.js';
-import { escHtml, personById, ICONS } from './helpers.js';
+import { cssColor, escHtml, personById, ICONS } from './helpers.js';
 import { showToast } from './toast.js';
 import { inviteMember, setMemberRole, removeMember, leaveBoard, canAdmin } from './store.js';
 
@@ -80,7 +80,7 @@ export function openMembersPopover(anchor, boardId) {
           const editable = admin && role !== 'owner';
           return `
             <div class="member-row" data-id="${escHtml(id)}">
-              <span class="member-picker-avatar" style="background:${p.color}">${escHtml(p.initials)}</span>
+              <span class="member-picker-avatar" style="background:${cssColor(p.color)}">${escHtml(p.initials)}</span>
               <span class="member-row-info">
                 <span class="member-picker-name">${escHtml(p.name)}${id === me ? ' <span class="member-you">(sen)</span>' : ''}</span>
                 ${p.email ? `<span class="member-row-email">${escHtml(p.email)}</span>` : ''}

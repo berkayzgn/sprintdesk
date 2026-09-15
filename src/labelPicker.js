@@ -6,7 +6,7 @@
 // de görünür); arama kutusu ve düzenleme formu DOM'da tutulur.
 // ============================================================
 import { state } from './state.js';
-import { escHtml, ICONS } from './helpers.js';
+import { cssColor, escHtml, ICONS } from './helpers.js';
 import { findCard, toggleCardLabel, createLabel, updateLabel, deleteLabel } from './store.js';
 
 export const LABEL_COLORS = ['#8b5cf6', '#6366f1', '#0ea5a3', '#10b981', '#f59e0b', '#f97316', '#f43f5e', '#64748b'];
@@ -77,7 +77,7 @@ export function openLabelPicker(anchor, cardId) {
         ${labels.length ? labels.map(l => editingId === l.id ? editForm(l) : `
           <div class="label-row">
             <button type="button" class="member-picker-item label-toggle ${card.labels.includes(l.id) ? 'is-selected' : ''}" data-id="${escHtml(l.id)}" aria-pressed="${card.labels.includes(l.id)}">
-              <span class="label-swatch" style="background:${l.color}">${escHtml(l.name)}</span>
+              <span class="label-swatch" style="background:${cssColor(l.color)}">${escHtml(l.name)}</span>
               <span class="member-picker-check">${CHECK}</span>
             </button>
             <button type="button" class="label-edit-btn" data-id="${escHtml(l.id)}" title="Düzenle" aria-label="${escHtml(l.name)} etiketini düzenle">${ICONS.edit13}</button>

@@ -10,7 +10,13 @@ const url = import.meta.env.VITE_SUPABASE_URL;
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!url || !anonKey) {
-  throw new Error('[supabase] VITE_SUPABASE_URL ve VITE_SUPABASE_ANON_KEY .env.local içinde tanımlı olmalı');
+  // Lokalde .env.local, Vercel'de Project Settings → Environment Variables.
+  // Değişkenler build sırasında gömülür; ekledikten sonra yeniden deploy gerekir.
+  document.getElementById('app').innerHTML =
+    '<p style="padding:24px;font-family:system-ui">Uygulama yapılandırılamadı. Lütfen daha sonra tekrar deneyin.</p>';
+  throw new Error(import.meta.env.DEV
+    ? '[supabase] VITE_SUPABASE_URL ve VITE_SUPABASE_ANON_KEY tanımlı olmalı'
+    : 'config');
 }
 
 export const supabase = createClient(url, anonKey);

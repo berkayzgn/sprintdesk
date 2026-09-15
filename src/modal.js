@@ -2,7 +2,7 @@
 // MODAL — Kart detay modal (masaüstü)
 // ============================================================
 import { state, setState, getActiveLists, getActiveBoard } from './state.js';
-import { findRawCard, getOpenCardView, escHtml, boardMembers, collectImages, restoreImages, captureDrafts, ICONS, currentUserDisplay } from './helpers.js';
+import { findRawCard, getOpenCardView, escHtml, cssColor, boardMembers, collectImages, restoreImages, captureDrafts, ICONS, currentUserDisplay } from './helpers.js';
 import { openMemberPicker, closeMemberPicker } from './memberPicker.js';
 import { showToast } from './toast.js';
 import { openRangePicker, closeRangePicker } from './datepicker.js';
@@ -153,7 +153,7 @@ export function renderModal(container) {
               <div>
                 <div class="field-label">Etiketler</div>
                 <div class="modal-labels">
-                  ${cv.labels.map(l => `<button type="button" class="card-label modal-label ${l.name ? '' : 'is-empty'} label-open" style="background:${l.color}" title="${escHtml(l.name)}">${escHtml(l.name)}</button>`).join('')}
+                  ${cv.labels.map(l => `<button type="button" class="card-label modal-label ${l.name ? '' : 'is-empty'} label-open" style="background:${cssColor(l.color)}" title="${escHtml(l.name)}">${escHtml(l.name)}</button>`).join('')}
                   <button type="button" class="label-add-btn label-open" id="label-add-btn" title="Etiket ekle / çıkar" aria-label="Etiket ekle / çıkar">${ICONS.plus}</button>
                 </div>
               </div>
@@ -196,7 +196,7 @@ export function renderModal(container) {
                     <div class="checklist-meta">
                     <button type="button" class="item-assignee ${it.assignee ? 'is-set' : ''}" data-item-id="${escHtml(it.id)}"
                       title="${it.assignee ? escHtml(it.assignee.name) + ' — değiştir' : 'Kişi ata'}"
-                      ${it.assignee ? `style="background:${it.assignee.color}"` : ''}>
+                      ${it.assignee ? `style="background:${cssColor(it.assignee.color)}"` : ''}>
                       ${it.assignee ? escHtml(it.assignee.initials) : ICONS.userPlus}
                     </button>
                     ${dueChipHTML({ key: it.id, startAt: it.startAt, dueAt: it.dueAt, label: it.dueLabel, style: it.dueStyle, emptyText: 'Tarih', compact: true })}
@@ -243,7 +243,7 @@ export function renderModal(container) {
               <div class="field-label">Üyeler</div>
               <div class="rail-members">
                 ${cv.assignees.map(p => `
-                  <button type="button" class="rail-avatar card-member-open" style="background:${p.color}" title="${escHtml(p.name)}">${escHtml(p.initials)}</button>
+                  <button type="button" class="rail-avatar card-member-open" style="background:${cssColor(p.color)}" title="${escHtml(p.name)}">${escHtml(p.initials)}</button>
                 `).join('')}
                 <button type="button" class="add-member-btn card-member-open" id="card-members-btn" title="Üye ekle / çıkar">${ICONS.plus}</button>
               </div>
@@ -268,7 +268,7 @@ export function renderModal(container) {
               <div class="comments-list">
                 ${cv.comments.map(cm => `
                   <div class="comment-item">
-                    <span class="avatar" style="width:32px;height:32px;font-size:11px;flex:0 0 auto;background:${cm.who.color}">${escHtml(cm.who.initials)}</span>
+                    <span class="avatar" style="width:32px;height:32px;font-size:11px;flex:0 0 auto;background:${cssColor(cm.who.color)}">${escHtml(cm.who.initials)}</span>
                     <div class="comment-body">
                       <div class="comment-header">
                         <span class="comment-name">${escHtml(cm.who.name)}</span>
@@ -576,7 +576,7 @@ export function renderProfileModal(container) {
           <!-- Avatar + isim -->
           <div style="display:flex;align-items:center;gap:18px;padding:20px;background:var(--canvas);border-radius:12px">
             <div style="position:relative;flex:0 0 auto">
-              <span id="prof-avatar" style="width:72px;height:72px;border-radius:50%;background:${me.color || 'var(--accent)'};color:#fff;font-size:24px;font-weight:700;display:flex;align-items:center;justify-content:center">${escHtml(me.initials)}</span>
+              <span id="prof-avatar" style="width:72px;height:72px;border-radius:50%;background:${cssColor(me.color)};color:#fff;font-size:24px;font-weight:700;display:flex;align-items:center;justify-content:center">${escHtml(me.initials)}</span>
             </div>
             <div>
               <div id="prof-display-name" style="font-size:20px;font-weight:700;color:var(--text)">${escHtml(me.name)}</div>

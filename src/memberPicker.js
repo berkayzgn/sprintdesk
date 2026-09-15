@@ -4,7 +4,7 @@
 // Popover body'ye eklenir; böylece seçim sonrası modal yeniden çizilse de
 // açık kalır (çoklu seçimde) ve konumu çapadan bağımsız korunur.
 // ============================================================
-import { escHtml, ICONS } from './helpers.js';
+import { cssColor, escHtml, ICONS } from './helpers.js';
 
 const CHECK = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
 
@@ -54,7 +54,7 @@ export function openMemberPicker(anchor, { title, members, selected, multiple = 
     list.innerHTML = visible.length
       ? visible.map(m => `
           <button type="button" class="member-picker-item ${current.has(m.id) ? 'is-selected' : ''}" data-id="${escHtml(m.id)}" role="option" aria-selected="${current.has(m.id)}">
-            <span class="member-picker-avatar" style="background:${m.color}">${escHtml(m.initials)}</span>
+            <span class="member-picker-avatar" style="background:${cssColor(m.color)}">${escHtml(m.initials)}</span>
             <span class="member-picker-name">${escHtml(m.name)}</span>
             <span class="member-picker-check">${CHECK}</span>
           </button>`).join('')

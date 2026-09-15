@@ -3,7 +3,7 @@
 // ============================================================
 import { state, setState } from './state.js';
 import { selectBoard, renameBoard, deleteBoard, canAdmin, isOwner } from './store.js';
-import { escHtml, compactQuery, ICONS, currentUserDisplay, captureDrafts } from './helpers.js';
+import { cssColor, escHtml, compactQuery, ICONS, currentUserDisplay, captureDrafts } from './helpers.js';
 import { openSettings, closeSettings } from './settings.js';
 
 const EDIT_ICON = ICONS.edit13;
@@ -51,7 +51,7 @@ export function renderSidebar(container) {
             if (isEditing && expanded) {
               return `
                 <div class="board-btn active" style="gap:6px;padding:6px 8px">
-                  <span class="board-dot" style="background:${b.color};flex-shrink:0"></span>
+                  <span class="board-dot" style="background:${cssColor(b.color)};flex-shrink:0"></span>
                   <input id="edit-board-inp" value="${escHtml(b.name)}" style="flex:1;min-width:0;border:none;outline:none;background:transparent;font-size:13px;font-weight:600;color:var(--text)">
                   <button class="board-action-btn confirm-edit" data-id="${b.id}" title="Kaydet">${CHECK_ICON}</button>
                   <button class="board-action-btn cancel-edit" title="İptal">${X_ICON}</button>
@@ -62,7 +62,7 @@ export function renderSidebar(container) {
             return `
               <div class="board-btn-row ${isActive ? 'active-row' : ''}">
                 <button class="board-btn ${isActive ? 'active' : ''} board-select" data-id="${b.id}" style="flex:1;min-width:0">
-                  <span class="board-dot" style="background:${b.color}"></span>
+                  <span class="board-dot" style="background:${cssColor(b.color)}"></span>
                   ${expanded ? `<span class="board-name">${escHtml(b.name)}</span>${b.starred ? `<span class="board-star" title="Yıldızlı" aria-label="Yıldızlı">★</span>` : ''}` : ''}
                 </button>
                 ${expanded && canAdmin(b) ? `
@@ -83,7 +83,7 @@ export function renderSidebar(container) {
 
       <div class="sidebar-footer ${expanded ? '' : 'is-collapsed'}">
         <button class="sidebar-user-btn" id="sidebar-user-btn" title="Profile git">
-          <span class="avatar" style="width:34px;height:34px;font-size:12.5px;font-weight:700${me.color ? `;background:${me.color}` : ''}">${escHtml(me.initials)}</span>
+          <span class="avatar" style="width:34px;height:34px;font-size:12.5px;font-weight:700${me.color ? `;background:${cssColor(me.color)}` : ''}">${escHtml(me.initials)}</span>
           ${expanded ? `
             <div class="user-info">
               <div class="user-name">${escHtml(me.name)}</div>
