@@ -8,13 +8,20 @@
 
 const listeners = new Set();
 
-const STORAGE_KEY = 'flowdesk.prefs.v1';
+const STORAGE_KEY = 'sprintdesk.prefs.v1';
+const LEGACY_STORAGE_KEY = 'flowdesk.prefs.v1';
 const PERSIST_KEYS = ['theme', 'sideExpanded', 'activeBoardId'];
 
 // Eski sürümlerin tarayıcıda tuttuğu demo verisini ve ek dosyalarını temizle
 try {
   localStorage.removeItem('flowdesk.state.v1');
   indexedDB?.deleteDatabase('flowdesk-files');
+  // Proje adı Flowdesk → Sprintdesk oldu; tercihleri yeni anahtara taşı
+  const legacyPrefs = localStorage.getItem(LEGACY_STORAGE_KEY);
+  if (legacyPrefs !== null) {
+    if (localStorage.getItem(STORAGE_KEY) === null) localStorage.setItem(STORAGE_KEY, legacyPrefs);
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+  }
 } catch { /* depolama erişimi kapalı olabilir */ }
 
 function loadPersisted() {

@@ -1,7 +1,7 @@
 {
-  "name": "flowdesk",
+  "name": "sprintdesk",
   "version": "1.0.0",
-  "description": "Flowdesk Kanban Board",
+  "description": "Sprintdesk Kanban Board",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

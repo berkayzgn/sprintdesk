@@ -1,5 +1,5 @@
 -- ============================================================
--- SCHEMA — Flowdesk tabloları
+-- SCHEMA — Sprintdesk tabloları
 -- ============================================================
 -- Hiyerarşi: boards → lists → cards → (checklist_items, comments, attachments)
 -- Yetki board_members üzerinden işler (bkz. 20260914090100_rls.sql).

@@ -88,7 +88,7 @@ export function renderLogin(container) {
         <div id="login-card" data-mode="${mode}">
           <div class="login-brand">
             <span class="login-logo">F</span>
-            <span class="login-brand-name">Flowdesk</span>
+            <span class="login-brand-name">Sprintdesk</span>
           </div>
           <h1 class="login-title">${copy.title}</h1>
           <p class="login-sub">${copy.sub}</p>

@@ -110,13 +110,13 @@ export function startRealtime() {
   stopRealtime();
   started = true;
 
-  const boardsChannel = supabase.channel('flowdesk-boards');
+  const boardsChannel = supabase.channel('sprintdesk-boards');
   for (const table of ['boards', 'board_members', 'profiles']) {
     boardsChannel.on('postgres_changes', { event: '*', schema: 'public', table }, scheduleBoardsReload);
   }
   boardsChannel.subscribe(onStatus('boards', scheduleBoardsReload));
 
-  const contentChannel = supabase.channel('flowdesk-board-content');
+  const contentChannel = supabase.channel('sprintdesk-board-content');
   for (const table of CONTENT_TABLES) {
     contentChannel.on('postgres_changes', { event: '*', schema: 'public', table }, payload => {
       if (affectsActiveBoard(payload)) scheduleBoardReload();
