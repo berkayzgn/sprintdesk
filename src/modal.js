@@ -136,7 +136,10 @@ export function renderModal(container) {
         ${cv.hasCover ? `<div class="modal-cover">${cv.cover ? `<img src="${escHtml(cv.cover)}" alt="">` : ''}</div>` : ''}
 
         <div class="modal-titlebar">
-          <div class="modal-title-icon">${ICONS.card}</div>
+          <button type="button" class="modal-complete-btn ${cv.dueComplete ? 'is-done' : ''}" id="modal-complete-btn" aria-pressed="${cv.dueComplete}"
+            title="${cv.dueComplete ? 'Tamamlanmadı olarak işaretle' : 'Tamamlandı olarak işaretle'}" ${editable ? '' : 'disabled'}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+          </button>
           <div class="modal-title-area">
             <input class="modal-title-input" id="modal-title-inp" value="${escHtml(cv.title)}" placeholder="Kart başlığı…" ${ro}>
             <div class="modal-list-label">Liste: <span>${escHtml(cv.listTitle)}</span></div>
@@ -161,11 +164,6 @@ export function renderModal(container) {
                 <div class="field-label">Tarih</div>
                 <div class="due-field">
                   ${dueChipHTML({ key: 'card', startAt: cv.startAt, dueAt: cv.dueAt, label: cv.dueLabel, style: cv.dueStyle, emptyText: 'Tarih ekle' })}
-                  ${cv.hasDue ? `
-                    <label class="due-complete">
-                      <input type="checkbox" id="due-complete-cb" ${cv.dueComplete ? 'checked' : ''} ${editable ? '' : 'disabled'}>
-                      Tamamlandı
-                    </label>` : ''}
                 </div>
               </div>
             </div>
@@ -324,13 +322,14 @@ export function renderModal(container) {
   // Son tarihler (kart + alt görevler)
   bindDueChips(container, (key, { startAt, dueAt }) => {
     if (key === 'card') {
-      updateCard(cardId, { startAt, dueAt, dueComplete: dueAt ? cv.dueComplete : false });
+      updateCard(cardId, { startAt, dueAt });
     } else {
       updateChecklistItem(cardId, key, { startAt, dueAt });
     }
   });
-  container.querySelector('#due-complete-cb')?.addEventListener('change', e => {
-    updateCard(cardId, { dueComplete: e.target.checked });
+  // Kart tamamlandı (tarih/alt görevden bağımsız)
+  container.querySelector('#modal-complete-btn')?.addEventListener('click', () => {
+    if (editable) updateCard(cardId, { dueComplete: !cv.dueComplete });
   });
 
   // Etiketler

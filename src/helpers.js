@@ -96,6 +96,7 @@ export function getCardView(c, listId) {
   return {
     id: c.id, title: c.title, listId,
     color: c.color || null,
+    completed: !!c.dueComplete,
     labels, assignees, hasLabels: labels.length > 0,
     hasDesc: !!(c.desc && c.desc.trim()),
     hasChecklist: total > 0,

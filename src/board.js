@@ -18,6 +18,7 @@ import { openFilterPopover, closeFilterPopover, cardMatchesFilters, activeFilter
 const STAR_FILLED = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.6 6.8 19.2l1-5.8L3.5 9.2l5.9-.9z"/></svg>`;
 
 const PLUS16 = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>`;
+const CHECK12 = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`;
 const EDIT_ICON = ICONS.edit13;
 const TRASH_ICON = ICONS.trash13;
 
@@ -406,13 +407,19 @@ function buildCardHTML(card) {
     ? `<input class="card-title-input" value="${escHtml(card.title)}">`
     : `<div class="card-title">${escHtml(card.title)}</div>`;
 
+  // Tamamlama tiki: izleyici yalnızca tamamlanmış kartlarda (salt okunur) görür
+  const completeHTML = card.editable
+    ? `<button type="button" class="card-complete-btn ${card.completed ? 'is-done' : ''}" aria-pressed="${card.completed}" title="${card.completed ? 'Tamamlanmadı olarak işaretle' : 'Tamamlandı olarak işaretle'}" aria-label="${card.completed ? 'Tamamlanmadı olarak işaretle' : 'Tamamlandı olarak işaretle'}">${CHECK12}</button>`
+    : card.completed ? `<span class="card-complete-btn is-done" title="Tamamlandı">${CHECK12}</span>` : '';
+
   return `
-    <div class="card" draggable="${card.editable && !card.editing ? 'true' : 'false'}" data-card-id="${card.id}" data-list-id="${card.listId}">
+    <div class="card ${card.completed ? 'is-completed' : ''}" draggable="${card.editable && !card.editing ? 'true' : 'false'}" data-card-id="${card.id}" data-list-id="${card.listId}">
       ${colorStrip}
       ${coverHTML}
       <div class="card-body">
         ${labelsHTML}
         <div class="card-title-row">
+          ${card.editing ? '' : completeHTML}
           ${titleHTML}
           ${card.editable ? `<button class="card-qa-btn card-menu-btn" title="Kart menüsü">${ICONS.dots}</button>` : ''}
         </div>
@@ -516,8 +523,14 @@ function attachCardEvents(section, list) {
       return; // düzenleme modunda diğer event'leri bağlama
     }
 
+    cardEl.querySelector('button.card-complete-btn')?.addEventListener('click', e => {
+      e.stopPropagation();
+      const card = list.cards.find(c => c.id === cardId);
+      if (card) updateCard(cardId, { dueComplete: !card.dueComplete });
+    });
+
     cardEl.addEventListener('click', e => {
-      if (e.target.closest('.card-qa-btn')) return;
+      if (e.target.closest('.card-qa-btn, .card-complete-btn')) return;
       setState({ openCardId: cardId });
     });
 
@@ -574,11 +587,34 @@ function attachAddCardEvents(section, list) {
     const beforeId = form.dataset.beforeId || null;
     const close = () => setState({ addingCardFor: null, addingCardBefore: null });
     ta.focus();
+    // Başlık yazıldıysa kartı oluştur ve formu açık tut (art arda ekleme);
+    // boşsa formu kapat
+    const submit = () => {
+      if (!ta.value.trim()) { close(); return; }
+      submitAddCard(list.id, beforeId, ta);
+    };
     ta.addEventListener('keydown', e => {
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitAddCard(list.id, beforeId, ta); }
-      if (e.key === 'Escape') close();
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+      if (e.key === 'Escape') { e.preventDefault(); close(); }
     });
-    form.querySelector('.submit-card-btn').addEventListener('click', () => submitAddCard(list.id, beforeId, ta));
+    // Dışarı tıklanınca (odak kaybı): yazılan başlık kaybolmasın, kart oluşturulsun.
+    // Formun kendi butonlarına basarken gelen blur'u yok say — onlar kendi işini yapar.
+    form.addEventListener('pointerdown', e => {
+      if (e.target.closest('button')) e.preventDefault();
+    });
+    ta.addEventListener('blur', () => {
+      if (rebuilding || !ta.isConnected) return;
+      // Sekme/pencere değişiminde (odak document dışına gidince) formu koru
+      if (!document.hasFocus()) return;
+      const t = ta.value.trim();
+      if (t) {
+        setState({ addingCardFor: null, addingCardBefore: null });
+        createCard(list.id, beforeId, t);
+      } else {
+        close();
+      }
+    });
+    form.querySelector('.submit-card-btn').addEventListener('click', submit);
     form.querySelector('.cancel-card-btn').addEventListener('click', close);
   }
 
@@ -665,7 +701,9 @@ function deleteList(listId) {
 function submitAddCard(listId, beforeCardId, taEl) {
   const t = (taEl?.value || '').trim();
   if (!t) return;
-  setState({ addingCardFor: null, addingCardBefore: null });
+  // Form açık kalır: yeni kartın hemen altında sıradaki başlık yazılabilir.
+  // Araya ekleme modunda da aynı noktanın (hedef kartın üstü) önüne eklenmeye devam eder.
+  taEl.value = '';
   createCard(listId, beforeCardId, t);
 }
 
