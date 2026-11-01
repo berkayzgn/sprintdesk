@@ -1,13 +1,18 @@
 // ============================================================
-// AUTH — Supabase Auth ile giriş / kayıt / çıkış
+// AUTH — Supabase Auth ile giriş / çıkış (kayıt kapalı: hesapları yönetici açar)
 // ============================================================
 // Oturumu supabase-js kendi saklar ve yeniler; state'e yalnızca
-// ekranın ihtiyacı olan özet (authed, userEmail, userName) yazılır.
+// ekranın ihtiyacı olan özet (authed, userEmail, userName, isAdmin,
+// mustChangePassword) yazılır. isAdmin / mustChangePassword app_metadata'dan
+// gelir; kullanıcı bunları kendisi değiştiremez
+// (bkz. migrations/..._admin_accounts.sql).
 // ============================================================
 import { supabase } from './supabase.js';
 import { state, setState } from './state.js';
 import { loadInitial, resetData, removeFilesOfBoardsDeletedWithAccount } from './store.js';
 import { startRealtime, stopRealtime } from './realtime.js';
+import { startSocial, stopSocial } from './social.js';
+import { resetNotes } from './notes.js';
 
 const MESSAGES = {
   invalid_credentials: 'E-posta veya şifre hatalı.',
@@ -21,6 +26,7 @@ const MESSAGES = {
   over_request_rate_limit: 'Çok fazla deneme yapıldı, biraz sonra tekrar dene.',
   same_password: 'Yeni şifre eskisiyle aynı olamaz.',
   email_address_not_authorized: 'Bu e-posta adresine mail gönderilemiyor.',
+  user_banned: 'Hesabın askıya alınmış. Yöneticine başvur.',
   reauthentication_needed: 'Güvenlik için tekrar giriş yapıp yeniden dene.',
 };
 
@@ -44,6 +50,8 @@ function applySession(session) {
     authReady: true,
     authed: !!user,
     userId: user?.id ?? null,
+    isAdmin: user?.app_metadata?.is_admin === true,
+    mustChangePassword: user?.app_metadata?.must_change_password === true,
     ...(user && {
       userEmail: user.email,
       userName: user.user_metadata?.full_name || '',
@@ -55,10 +63,13 @@ function applySession(session) {
   if (user?.id !== prevUserId) {
     setTimeout(() => {
       stopRealtime();
+      stopSocial();
+      resetNotes();
       resetData();
       if (user) {
         loadInitial();
         startRealtime();
+        startSocial();
       }
     }, 0);
   }
@@ -76,27 +87,20 @@ export async function signIn(email, password) {
 }
 
 /**
- * @returns {{ error?: string, needsConfirmation?: boolean }}
- * needsConfirmation: sunucuda e-posta doğrulama açık, oturum link tıklanınca açılır
+ * İlk girişte (ya da yönetici şifreyi sıfırladıktan sonra) yeni şifreyi kaydeder.
+ * Bayrak sunucuda trigger ile kalkar; yeni değeri almak için oturum yenilenir.
  */
-export async function signUp({ name, email, password }) {
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      data: { full_name: name },
-      emailRedirectTo: window.location.origin,
-    },
-  });
+export async function setInitialPassword(newPassword) {
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
   if (error) return { error: authErrorMessage(error) };
-  if (data.session) return {};
-
-  // Sunucu doğrulama istiyor ama hesap veritabanında otomatik doğrulanmış
-  // olabilir (bkz. migrations/..._auto_confirm.sql): doğrudan giriş dene
-  const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
-  if (!signInError) return {};
-  if (signInError.code === 'email_not_confirmed') return { needsConfirmation: true };
-  return { error: authErrorMessage(signInError) };
+  const { error: refreshError } = await supabase.auth.refreshSession();
+  if (refreshError) {
+    console.error('[auth] oturum yenilenemedi', refreshError);
+    // Şifre değişti ama eski token'da bayrak duruyor: tekrar giriş iste
+    await supabase.auth.signOut({ scope: 'local' });
+    return { error: 'Şifren kaydedildi. Lütfen yeni şifrenle tekrar giriş yap.' };
+  }
+  return {};
 }
 
 /** Mevcut şifreyi doğrulayıp yenisini kaydeder */

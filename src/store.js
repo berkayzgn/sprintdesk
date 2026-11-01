@@ -586,7 +586,8 @@ export function createLabel(name, color) {
   const boardId = state.activeBoardId;
   const label = { id: crypto.randomUUID(), name, color };
   setBoardLabels(boardId, { ...state.labelsByBoard[boardId], [label.id]: label });
-  return persist(() => supabase.from('labels').insert({ ...label, board_id: boardId }));
+  persist(() => supabase.from('labels').insert({ ...label, board_id: boardId }));
+  return label.id;
 }
 
 export function updateLabel(labelId, patch) {

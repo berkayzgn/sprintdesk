@@ -1,15 +1,17 @@
 // ============================================================
-// LOGIN — Giriş / kayıt ekranı (iki kolonlu: form + marka paneli)
+// LOGIN — Giriş ekranı + ilk girişte şifre belirleme
+// (iki kolonlu: form + marka paneli)
+// ============================================================
+// Kayıt yok: hesapları yönetici açar (bkz. users.js). Yöneticinin açtığı
+// ya da şifresini sıfırladığı hesap ilk girişte 'setup' moduna düşer ve
+// yeni şifre belirlemeden uygulamaya geçemez.
 // ============================================================
 import { state } from './state.js';
 import { escHtml } from './helpers.js';
-import { signIn, signUp } from './auth.js';
+import { signIn, signOut, setInitialPassword } from './auth.js';
+import logoUrl from './assets/logo.webp';
 
-const MIN_PASSWORD = 8;
-
-let mode = 'login'; // 'login' | 'register'
-let draftEmail = null; // mod değişirken yazılmış e-posta kaybolmasın
-let notice = '';       // form üstünde gösterilecek bilgi mesajı (ör. doğrulama maili)
+export const MIN_PASSWORD = 8;
 
 const COPY = {
   login: {
@@ -17,20 +19,16 @@ const COPY = {
     sub: 'Çalışma alanına giriş yap',
     submit: 'Giriş yap',
     busy: 'Giriş yapılıyor…',
-    switchText: 'Hesabın yok mu?',
-    switchLink: 'Kayıt ol',
     heroTitle: 'İşini akışta tut.',
     heroText: "Board'lar, listeler ve kartlarla ekibinin tüm işini tek yerde organize et.",
   },
-  register: {
-    title: 'Hesap oluştur',
-    sub: 'Birkaç saniyede ekibinle çalışmaya başla',
-    submit: 'Kayıt ol',
-    busy: 'Hesap oluşturuluyor…',
-    switchText: 'Zaten hesabın var mı?',
-    switchLink: 'Giriş yap',
-    heroTitle: 'Ekibini tek board’da topla.',
-    heroText: "Board oluştur, ekip arkadaşlarını davet et, kartları birlikte ilerletin.",
+  setup: {
+    title: 'Yeni şifreni belirle',
+    sub: 'Hesabın geçici bir şifreyle açıldı. Devam etmek için kendine ait bir şifre belirle.',
+    submit: 'Şifreyi kaydet ve devam et',
+    busy: 'Kaydediliyor…',
+    heroTitle: 'Hoş geldin!',
+    heroText: 'Şifreni belirledikten sonra ekibinin board’larına hemen ulaşabilirsin.',
   },
 };
 
@@ -43,29 +41,23 @@ function passwordField(id, label, placeholder, autocomplete) {
     </div>`;
 }
 
-function formHTML() {
-  const email = escHtml(draftEmail ?? state.userEmail ?? '');
-  if (mode === 'register') {
+function formHTML(mode) {
+  if (mode === 'setup') {
     return `
       <form id="login-form" class="login-form" novalidate>
-        <label class="login-label" for="reg-name">Ad Soyad</label>
-        <input id="reg-name" type="text" class="login-input" placeholder="Ayşe Yılmaz" autocomplete="name">
-
-        <label class="login-label" for="login-email">E-posta</label>
-        <input id="login-email" type="email" class="login-input" placeholder="ornek@firma.com" autocomplete="email" value="${email}">
-
-        ${passwordField('login-password', 'Şifre', `En az ${MIN_PASSWORD} karakter`, 'new-password')}
-        ${passwordField('reg-password-confirm', 'Şifre (tekrar)', 'Şifreni tekrar gir', 'new-password')}
+        <input type="email" autocomplete="username" value="${escHtml(state.userEmail || '')}" hidden>
+        ${passwordField('login-password', 'Yeni şifre', `En az ${MIN_PASSWORD} karakter`, 'new-password')}
+        ${passwordField('setup-password-confirm', 'Yeni şifre (tekrar)', 'Şifreni tekrar gir', 'new-password')}
 
         <div id="login-error" class="login-error" role="alert"></div>
 
-        <button type="submit" class="login-btn">${COPY.register.submit}</button>
+        <button type="submit" class="login-btn">${COPY.setup.submit}</button>
       </form>`;
   }
   return `
     <form id="login-form" class="login-form" novalidate>
       <label class="login-label" for="login-email">E-posta</label>
-      <input id="login-email" type="email" class="login-input" placeholder="ornek@firma.com" autocomplete="email" value="${email}">
+      <input id="login-email" type="email" class="login-input" placeholder="ornek@firma.com" autocomplete="email" value="${escHtml(state.userEmail || '')}">
 
       ${passwordField('login-password', 'Şifre', '••••••••', 'current-password')}
 
@@ -75,8 +67,20 @@ function formHTML() {
     </form>`;
 }
 
+function footerHTML(mode) {
+  if (mode === 'setup') {
+    return `
+      <p class="login-switch">
+        ${escHtml(state.userEmail || '')} değil misin?
+        <button type="button" id="login-signout" class="login-link">Çıkış yap</button>
+      </p>`;
+  }
+  return `<p class="login-switch">Hesabın yok mu? Yöneticinden hesap açmasını iste.</p>`;
+}
+
 export function renderLogin(container) {
-  if (state.authed) { mode = 'login'; draftEmail = null; notice = ''; container.innerHTML = ''; container.classList.add('hidden'); return; }
+  const mode = !state.authed ? 'login' : state.mustChangePassword ? 'setup' : null;
+  if (!mode) { container.innerHTML = ''; container.classList.add('hidden'); return; }
   container.classList.remove('hidden');
   if (container.querySelector('#login-card')?.dataset.mode === mode) return; // build-once (focus korunur)
 
@@ -87,20 +91,15 @@ export function renderLogin(container) {
       <div id="login-left">
         <div id="login-card" data-mode="${mode}">
           <div class="login-brand">
-            <span class="login-logo">F</span>
+            <span class="brand-logo"><img src="${logoUrl}" alt="KYNC Teknoloji"></span>
             <span class="login-brand-name">Sprintdesk</span>
           </div>
           <h1 class="login-title">${copy.title}</h1>
           <p class="login-sub">${copy.sub}</p>
 
-          ${notice ? `<div class="login-notice" role="status">${escHtml(notice)}</div>` : ''}
+          ${formHTML(mode)}
 
-          ${formHTML()}
-
-          <p class="login-switch">
-            ${copy.switchText}
-            <button type="button" id="login-switch" class="login-link">${copy.switchLink}</button>
-          </p>
+          ${footerHTML(mode)}
         </div>
       </div>
 
@@ -132,10 +131,9 @@ export function renderLogin(container) {
   `;
 
   const form = container.querySelector('#login-form');
-  const nameInp = container.querySelector('#reg-name');
   const emailInp = container.querySelector('#login-email');
   const pwInp = container.querySelector('#login-password');
-  const confirmInp = container.querySelector('#reg-password-confirm');
+  const confirmInp = container.querySelector('#setup-password-confirm');
   const errEl = container.querySelector('#login-error');
 
   const submitBtn = container.querySelector('.login-btn');
@@ -151,30 +149,20 @@ export function renderLogin(container) {
 
   const submit = async () => {
     if (busy) return;
-    const email = (emailInp.value || '').trim();
     const pw = pwInp.value || '';
 
-    if (mode === 'register') {
-      const name = (nameInp.value || '').trim();
-      if (!name) return fail('Adını ve soyadını gir.', nameInp);
-      if (!email || !email.includes('@')) return fail('Geçerli bir e-posta gir.', emailInp);
+    if (mode === 'setup') {
       if (pw.length < MIN_PASSWORD) return fail(`Şifre en az ${MIN_PASSWORD} karakter olmalı.`, pwInp);
       if (pw !== confirmInp.value) return fail('Şifreler eşleşmiyor.', confirmInp);
 
       setBusy(true);
-      const res = await signUp({ name, email, password: pw });
-      if (res.error) { setBusy(false); return fail(res.error); }
-      if (res.needsConfirmation) {
-        // Oturum mail linkiyle açılacak: giriş ekranına dön ve bilgilendir
-        notice = `${email} adresine doğrulama linki gönderdik. Linke tıkladıktan sonra giriş yapabilirsin.`;
-        draftEmail = email;
-        mode = 'login';
-        renderLogin(container);
-      }
-      // Oturum açıldıysa onAuthStateChange uygulamaya geçirir
+      const res = await setInitialPassword(pw);
+      // Başarılıysa oturum yenilenir, bayrak kalkar ve onAuthStateChange uygulamaya geçirir
+      if (res.error) { setBusy(false); fail(res.error, pwInp); }
       return;
     }
 
+    const email = (emailInp.value || '').trim();
     if (!email || !email.includes('@')) return fail('Geçerli bir e-posta gir.', emailInp);
     if (!pw) return fail('Şifreni gir.', pwInp);
 
@@ -192,12 +180,7 @@ export function renderLogin(container) {
     inp.focus();
   }));
 
-  container.querySelector('#login-switch').addEventListener('click', () => {
-    draftEmail = emailInp.value.trim();
-    notice = '';
-    mode = mode === 'login' ? 'register' : 'login';
-    renderLogin(container);
-  });
+  container.querySelector('#login-signout')?.addEventListener('click', () => signOut());
 
-  (nameInp || emailInp).focus();
+  (mode === 'setup' ? pwInp : emailInp).focus();
 }

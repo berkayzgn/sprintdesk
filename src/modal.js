@@ -2,12 +2,14 @@
 // MODAL — Kart detay modal (masaüstü)
 // ============================================================
 import { state, setState, getActiveLists, getActiveBoard } from './state.js';
-import { findRawCard, getOpenCardView, escHtml, cssColor, boardMembers, collectImages, restoreImages, captureDrafts, ICONS, currentUserDisplay } from './helpers.js';
+import { findRawCard, getOpenCardView, escHtml, cssColor, labelStyle, boardMembers, collectImages, restoreImages, captureDrafts, ICONS, currentUserDisplay } from './helpers.js';
 import { openMemberPicker, closeMemberPicker } from './memberPicker.js';
 import { showToast } from './toast.js';
 import { openRangePicker, closeRangePicker } from './datepicker.js';
 import { openLabelPicker, closeLabelPicker, refreshLabelPicker } from './labelPicker.js';
 import { signOut, changePassword, deleteAccount } from './auth.js';
+import { createEditor, saveSelection, restoreSelection } from './richtext.js';
+import { confirmDialog } from './dialog.js';
 import {
   updateCard, setCardAssignees, addChecklistItem, updateChecklistItem, deleteChecklistItem,
   addComment, addAttachment, removeAttachment, createBoard, accountDeletionImpact, canEdit, updateProfile,
@@ -33,6 +35,23 @@ function afterPointerUp(fn) {
   if (!pointerDown) { fn(); return; }
   document.addEventListener('pointerup', () => setTimeout(fn, 0), { once: true, capture: true });
 }
+
+// ---- Esc ile kapatma (kart, yeni board, profil) ----
+// Üstte küçük bir menü/pencere açıksa (etiket/kişi/tarih seçici, onay penceresi,
+// editör menüsü…) Esc önce onu kapatır; o yüzden tuşa basıldığı AN açık bir
+// katman var mı diye en erken aşamada (window, capture) bakılır.
+const OVERLAYS = '.dlg-scrim, .member-picker, .air-datepicker.-active-, .rte-menu, .rte-linkpop, .settings-popover, .cal-scrim, .notif-pop, .hovercard, .um-menu';
+let overlayAtEsc = false;
+window.addEventListener('keydown', e => { if (e.key === 'Escape') overlayAtEsc = !!document.querySelector(OVERLAYS); }, true);
+const escClosers = new Map(); // isim → kapatma fonksiyonu (açık olan pencere kayıt olur)
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || e.isComposing || overlayAtEsc) return;
+  // En üstteki pencereyi kapat: profil / yeni board, kartın üstünde açılabilir
+  for (const name of ['profile', 'newBoard', 'card']) {
+    const close = escClosers.get(name);
+    if (close) { e.preventDefault(); close(); return; }
+  }
+});
 
 // innerHTML değişirken Chrome odaktaki alan için blur gönderiyor; bu blur
 // kullanıcının alandan çıktığı anlamına gelmez
@@ -110,9 +129,25 @@ function bindDueChips(root, onChange) {
 
 export function renderModal(container) {
   ensureFileInput();
+  // Kart açıkken yapıştırılan görsel/dosya karta ek olarak yüklenir (açıklama, yorum dahil her yerde)
+  if (!container.__pasteBound) {
+    container.__pasteBound = true;
+    container.addEventListener('paste', async e => {
+      const files = [...(e.clipboardData?.files || [])];
+      const cardId = state.openCardId;
+      if (!files.length || !cardId || !canEdit()) return;
+      e.preventDefault();
+      for (const f of files) {
+        if (f.size > MAX_FILE_BYTES) { showToast(`${f.name} çok büyük (en fazla 25 MB).`, 'error'); continue; }
+        const named = f.name && f.name !== 'image.png' ? f : new File([f], `yapistirilan-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.${(f.type.split('/')[1] || 'png')}`, { type: f.type });
+        showToast(`${named.name} karta ekleniyor…`);
+        await addAttachment(cardId, named);
+      }
+    });
+  }
   const s = state;
   const found = s.openCardId ? findRawCard(getActiveLists(), s.openCardId) : null;
-  if (!found) { closeRangePicker(); closeMemberPicker(); closeLabelPicker(); rebuilding = true; container.innerHTML = ''; rebuilding = false; return; }
+  if (!found) { escClosers.delete('card'); closeRangePicker(); closeMemberPicker(); closeLabelPicker(); rebuilding = true; container.innerHTML = ''; rebuilding = false; return; }
 
   const cv = getOpenCardView(found.card, found.listTitle);
   const pct = cv.checklistPct;
@@ -125,7 +160,14 @@ export function renderModal(container) {
   const prevScroll = sameCard ? prevScrim.scrollTop : 0;
   // Taslaklar (yorum, alt görev) her zaman; başlık/açıklama yalnızca yazılırken korunur
   const restoreDrafts = sameCard ? captureDrafts(container, '#modal-comment-ta, #checklist-add-inp') : () => {};
-  const restoreEditing = sameCard ? captureDrafts(container, '#modal-title-inp, #modal-desc-ta', undefined, true) : () => {};
+  const restoreEditing = sameCard ? captureDrafts(container, '#modal-title-inp', undefined, true) : () => {};
+  // Açıklama editörü yazılırken yeniden çizimde aynı DOM düğümü geri takılır
+  // (contenteditable'ın imleci/geri al geçmişi korunur)
+  const oldEditor = container.querySelector('.rte');
+  const keepEditor = sameCard && oldEditor && oldEditor.contains(document.activeElement) ? oldEditor : null;
+  const savedSel = keepEditor ? saveSelection(keepEditor) : null;
+  if (keepEditor) keepEditor.suspended = true;
+  else oldEditor?.destroy?.();
   const oldImages = sameCard ? collectImages(container) : new Map();
   if (!sameCard) { closeMemberPicker(); closeLabelPicker(); }
 
@@ -156,7 +198,7 @@ export function renderModal(container) {
               <div>
                 <div class="field-label">Etiketler</div>
                 <div class="modal-labels">
-                  ${cv.labels.map(l => `<button type="button" class="card-label modal-label ${l.name ? '' : 'is-empty'} label-open" style="background:${cssColor(l.color)}" title="${escHtml(l.name)}">${escHtml(l.name)}</button>`).join('')}
+                  ${cv.labels.map(l => `<button type="button" class="card-label modal-label ${l.name ? '' : 'is-empty'} label-open" style="${labelStyle(l.color)}" title="${escHtml(l.name)}">${escHtml(l.name)}</button>`).join('')}
                   <button type="button" class="label-add-btn label-open" id="label-add-btn" title="Etiket ekle / çıkar" aria-label="Etiket ekle / çıkar">${ICONS.plus}</button>
                 </div>
               </div>
@@ -171,7 +213,7 @@ export function renderModal(container) {
             <!-- Description -->
             <div>
               <div class="section-heading">${ICONS.desc}<span>Açıklama</span></div>
-              <textarea class="desc-textarea" id="modal-desc-ta" rows="4" placeholder="${editable ? 'Daha ayrıntılı bir açıklama ekle…' : 'Açıklama yok'}" ${ro}>${escHtml(cv.desc)}</textarea>
+              <div id="modal-desc-slot"></div>
             </div>
 
             <!-- Checklist -->
@@ -241,7 +283,7 @@ export function renderModal(container) {
               <div class="field-label">Üyeler</div>
               <div class="rail-members">
                 ${cv.assignees.map(p => `
-                  <button type="button" class="rail-avatar card-member-open" style="background:${cssColor(p.color)}" title="${escHtml(p.name)}">${escHtml(p.initials)}</button>
+                  <button type="button" class="rail-avatar card-member-open" data-user-id="${escHtml(p.id)}" style="background:${cssColor(p.color)}" title="${escHtml(p.name)}">${escHtml(p.initials)}</button>
                 `).join('')}
                 <button type="button" class="add-member-btn card-member-open" id="card-members-btn" title="Üye ekle / çıkar">${ICONS.plus}</button>
               </div>
@@ -257,7 +299,7 @@ export function renderModal(container) {
               <div class="comment-composer">
                 <span class="avatar" style="width:32px;height:32px;font-size:11px;flex:0 0 auto">${escHtml(currentUserDisplay(state).initials)}</span>
                 <div class="comment-composer-body">
-                  <textarea class="comment-textarea" id="modal-comment-ta" rows="3" placeholder="Yorum yaz… (Gönder: ⌘/Ctrl + Enter)"></textarea>
+                  <textarea class="comment-textarea" id="modal-comment-ta" rows="3" placeholder="Yorum yaz… (Enter ile gönder, alt satır için Shift + Enter)"></textarea>
                   <button class="send-btn" id="comment-send-btn">Gönder</button>
                 </div>
               </div>
@@ -266,7 +308,7 @@ export function renderModal(container) {
               <div class="comments-list">
                 ${cv.comments.map(cm => `
                   <div class="comment-item">
-                    <span class="avatar" style="width:32px;height:32px;font-size:11px;flex:0 0 auto;background:${cssColor(cm.who.color)}">${escHtml(cm.who.initials)}</span>
+                    <span class="avatar" data-user-id="${escHtml(cm.who.id || '')}" style="width:32px;height:32px;font-size:11px;flex:0 0 auto;background:${cssColor(cm.who.color)}">${escHtml(cm.who.initials)}</span>
                     <div class="comment-body">
                       <div class="comment-header">
                         <span class="comment-name">${escHtml(cm.who.name)}</span>
@@ -290,9 +332,21 @@ export function renderModal(container) {
   const cardId = s.openCardId;
   const scrim = container.querySelector('#modal-scrim');
   const titleInp = container.querySelector('#modal-title-inp');
-  const descTa = container.querySelector('#modal-desc-ta');
   const commentTa = container.querySelector('#modal-comment-ta');
   const checkInp = container.querySelector('#checklist-add-inp');
+
+  const descSlot = container.querySelector('#modal-desc-slot');
+  const editor = keepEditor || createEditor({
+    html: cv.desc,
+    editable,
+    placeholder: editable ? 'Daha ayrıntılı bir açıklama ekle… (üstteki düğmelerle kalın, renkli, altı çizili yazabilirsin)' : 'Açıklama yok',
+    onCommit: desc => updateCard(cardId, { desc }),
+  });
+  descSlot.replaceWith(editor);
+  if (keepEditor) {
+    restoreSelection(keepEditor, savedSel);
+    keepEditor.suspended = false;
+  }
 
   rebuilding = false;
   restoreImages(container, oldImages);
@@ -305,18 +359,18 @@ export function renderModal(container) {
     const title = titleInp.value.trim();
     if (title && title !== cv.title) patch.title = title;
     else if (!title) titleInp.value = cv.title; // boş başlık kaydedilmez
-    if (descTa.value !== cv.desc) patch.desc = descTa.value;
     if (Object.keys(patch).length) updateCard(cardId, patch);
+    editor.commit();
   };
 
   const closeModal = () => { commitText(); setState({ openCardId: null }); };
+  escClosers.set('card', closeModal);
 
   scrim.addEventListener('click', e => { if (e.target === scrim) closeModal(); });
   container.querySelector('#modal-close-btn').addEventListener('click', closeModal);
 
   // Başlık & açıklama — yalnızca blur'da commit (re-render typing'i bölmez)
   titleInp.addEventListener('blur', () => { if (!rebuilding) afterPointerUp(commitText); });
-  descTa.addEventListener('blur', () => { if (!rebuilding) afterPointerUp(commitText); });
   titleInp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); titleInp.blur(); } });
 
   // Son tarihler (kart + alt görevler)
@@ -401,9 +455,11 @@ export function renderModal(container) {
 
   // Ek kaldır
   container.querySelectorAll('.remove-attach-btn').forEach(btn => {
-    btn.addEventListener('click', e => {
+    btn.addEventListener('click', async e => {
       e.preventDefault(); e.stopPropagation();
-      removeAttachment(cardId, btn.dataset.attId);
+      const att = cv.attachments.find(a => a.id === btn.dataset.attId);
+      const ok = await confirmDialog({ title: 'Dosya silinsin mi?', message: `"${att?.name || ''}" karttan kaldırılacak.`, confirmText: 'Sil', danger: true });
+      if (ok) removeAttachment(cardId, btn.dataset.attId);
     });
   });
 
@@ -416,7 +472,7 @@ export function renderModal(container) {
   };
   container.querySelector('#comment-send-btn').addEventListener('click', sendComment);
   commentTa.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendComment(); }
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendComment(); }
   });
 }
 
@@ -424,7 +480,7 @@ export function renderModal(container) {
 const BOARD_COLORS = ['#360185', '#FBC02D', '#10CAB9', '#FE6ABF'];
 
 export function renderNewBoardModal(container) {
-  if (!state.newBoardModal) { container.innerHTML = ''; return; }
+  if (!state.newBoardModal) { escClosers.delete('newBoard'); container.innerHTML = ''; return; }
   // Only build DOM once — avoid re-render on every state change (breaks input focus)
   if (container.querySelector('#nb-scrim')) return;
 
@@ -463,7 +519,7 @@ export function renderNewBoardModal(container) {
             <input id="nb-email-inp" type="email" placeholder="ekip@firma.com" autocomplete="off">
             <button type="submit">Ekle</button>
           </form>
-          <div class="nb-email-hint">Kişinin uygulamaya kayıtlı olması gerekir.</div>
+          <div class="nb-email-hint">Kişinin uygulamada hesabı olması gerekir.</div>
           <div id="nb-email-list" class="nb-email-list"></div>
         </div>
 
@@ -475,7 +531,8 @@ export function renderNewBoardModal(container) {
     </div>
   `;
 
-  const close = () => { container.innerHTML = ''; setState({ newBoardModal: false }); };
+  const close = () => { escClosers.delete('newBoard'); container.innerHTML = ''; setState({ newBoardModal: false }); };
+  escClosers.set('newBoard', () => { if (!creating) close(); });
 
   container.querySelector('#nb-scrim').addEventListener('click', e => { if (e.target.id === 'nb-scrim' && !creating) close(); });
   container.querySelector('#nb-close').addEventListener('click', close);
@@ -541,6 +598,9 @@ export function renderNewBoardModal(container) {
     }
   });
 
+  container.querySelector('#nb-name-inp').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); createBtn.click(); }
+  });
   container.querySelector('#nb-name-inp').focus();
 }
 
@@ -549,83 +609,72 @@ export function renderNewBoardModal(container) {
 const AVATAR_COLORS = ['#6366f1', '#8b5cf6', '#0ea5a3', '#10b981', '#f59e0b', '#f43f5e', '#3b82f6'];
 
 export function renderProfileModal(container) {
-  if (!state.profileOpen) { container.innerHTML = ''; return; }
+  if (!state.profileOpen) { escClosers.delete('profile'); container.innerHTML = ''; return; }
   if (container.querySelector('#prof-scrim')) return;
 
-  const INP = `border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;outline:none;background:var(--chip-bg);color:var(--text);width:100%;box-sizing:border-box`;
-  const LABEL = `font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:5px`;
-  const SECTION = `display:flex;flex-direction:column;gap:6px`;
-  const DIVIDER = `<div style="height:1px;background:var(--border);margin:4px 0"></div>`;
+  const INP = `border:1.5px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13.5px;outline:none;background:var(--chip-bg);color:var(--text);width:100%;box-sizing:border-box`;
+  const LABEL = `font-size:11.5px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:3px`;
+  const SECTION = `display:flex;flex-direction:column;gap:4px`;
+  const DIVIDER = `<div style="height:1px;background:var(--border)"></div>`;
   const me = currentUserDisplay(state);
 
   container.innerHTML = `
     <div id="prof-scrim" style="position:fixed;inset:0;background:var(--scrim);z-index:900;display:flex;align-items:center;justify-content:center">
-      <div style="background:var(--surface);border-radius:18px;width:min(560px, calc(100vw - 24px));max-height:90vh;overflow-y:auto;box-shadow:0 24px 72px rgba(0,0,0,.28);display:flex;flex-direction:column">
+      <div style="background:var(--surface);border-radius:16px;width:min(500px, calc(100vw - 24px));max-height:90vh;overflow-y:auto;box-shadow:0 24px 72px rgba(0,0,0,.28);display:flex;flex-direction:column;animation:om-pop .26s cubic-bezier(.2,.8,.2,1)">
 
         <!-- Header -->
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:24px 28px 20px">
-          <h2 style="font-size:17px;font-weight:700;margin:0;color:var(--text)">Hesap ve profil</h2>
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px 10px">
+          <h2 style="font-size:16px;font-weight:700;margin:0;color:var(--text)">Hesap ve profil</h2>
           <button id="prof-close" style="background:none;border:none;cursor:pointer;padding:4px;color:var(--text-muted)">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 6 6 18M6 6l12 12"/></svg>
           </button>
         </div>
 
-        <div style="padding:0 28px 28px;display:flex;flex-direction:column;gap:24px">
+        <div style="padding:0 20px 18px;display:flex;flex-direction:column;gap:14px">
 
           <!-- Avatar + isim -->
-          <div style="display:flex;align-items:center;gap:18px;padding:20px;background:var(--canvas);border-radius:12px">
+          <div style="display:flex;align-items:center;gap:14px;padding:12px 14px;background:var(--canvas);border-radius:12px">
             <div style="position:relative;flex:0 0 auto">
-              <span id="prof-avatar" style="width:72px;height:72px;border-radius:50%;background:${cssColor(me.color)};color:#fff;font-size:24px;font-weight:700;display:flex;align-items:center;justify-content:center">${escHtml(me.initials)}</span>
+              <span id="prof-avatar" style="width:48px;height:48px;border-radius:50%;background:${cssColor(me.color)};color:#fff;font-size:17px;font-weight:700;display:flex;align-items:center;justify-content:center">${escHtml(me.initials)}</span>
             </div>
             <div>
-              <div id="prof-display-name" style="font-size:20px;font-weight:700;color:var(--text)">${escHtml(me.name)}</div>
-              <div id="prof-email-label" style="font-size:13px;color:var(--text-muted);margin-top:2px">${escHtml(state.userEmail || '')}</div>
+              <div id="prof-display-name" style="font-size:16px;font-weight:700;color:var(--text)">${escHtml(me.name)}</div>
+              <div id="prof-email-label" style="font-size:12.5px;color:var(--text-muted);margin-top:1px">${escHtml(state.userEmail || '')}</div>
             </div>
           </div>
 
           <!-- Ad ve avatar rengi -->
           <div style="${SECTION}">
-            <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:2px">Profil</div>
+            <div style="font-size:13.5px;font-weight:700;color:var(--text)">Profil</div>
             <label for="prof-name" style="${LABEL}">Ad Soyad</label>
             <input id="prof-name" value="${escHtml(me.name)}" maxlength="80" style="${INP}">
-            <label style="${LABEL};margin-top:8px">Avatar rengi</label>
+            <label style="${LABEL};margin-top:4px">Avatar rengi</label>
             <div class="avatar-color-row" id="prof-color-row">
               ${AVATAR_COLORS.map(c => `<button type="button" class="avatar-color ${c === me.color ? 'is-selected' : ''}" data-color="${c}" style="background:${c}" aria-label="Renk ${c}"></button>`).join('')}
             </div>
-            <div id="prof-name-msg" style="font-size:12px;min-height:16px;margin-top:2px"></div>
+            <div id="prof-name-msg" style="font-size:12px;min-height:0"></div>
             <button id="prof-save-profile" style="align-self:flex-end;padding:7px 16px;border-radius:8px;border:none;background:var(--accent);color:#fff;cursor:pointer;font-size:13px;font-weight:600">Kaydet</button>
-          </div>
-
-          ${DIVIDER}
-
-          <!-- E-posta -->
-          <div style="${SECTION}">
-            <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:2px">E-posta adresi</div>
-            <label style="${LABEL}">Mevcut e-posta</label>
-            <input id="prof-email" type="email" value="${escHtml(state.userEmail || '')}" style="${INP};opacity:.7" readonly>
-            <!-- E-posta değişikliği onay maili gerektirir; sunucuda SMTP ayarlanınca açılacak -->
-            <div style="font-size:12px;color:var(--text-muted);margin-top:2px">E-posta değiştirme şu an kapalı.</div>
           </div>
 
           ${DIVIDER}
 
           <!-- Şifre -->
           <div style="${SECTION}">
-            <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:2px">Şifre</div>
+            <div style="font-size:13.5px;font-weight:700;color:var(--text)">Şifre değiştir</div>
             <label style="${LABEL}">Mevcut şifre</label>
             <input id="prof-pw-current" type="password" placeholder="Mevcut şifren" style="${INP}">
-            <label style="${LABEL};margin-top:8px">Yeni şifre</label>
-            <input id="prof-pw-new" type="password" placeholder="En az 8 karakter" style="${INP}">
-            <label style="${LABEL};margin-top:8px">Yeni şifre (tekrar)</label>
-            <input id="prof-pw-confirm" type="password" placeholder="Yeni şifreni tekrar gir" style="${INP}">
-            <div id="prof-pw-msg" style="font-size:12px;min-height:16px;margin-top:2px"></div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:4px">
+              <div><label style="${LABEL}">Yeni şifre</label><input id="prof-pw-new" type="password" placeholder="En az 8 karakter" style="${INP}"></div>
+              <div><label style="${LABEL}">Yeni şifre (tekrar)</label><input id="prof-pw-confirm" type="password" placeholder="Tekrar gir" style="${INP}"></div>
+            </div>
+            <div id="prof-pw-msg" style="font-size:12px;min-height:0"></div>
             <button id="prof-save-pw" style="align-self:flex-end;padding:7px 16px;border-radius:8px;border:none;background:var(--accent);color:#fff;cursor:pointer;font-size:13px;font-weight:600">Şifreyi güncelle</button>
           </div>
 
           ${DIVIDER}
 
           <!-- Çıkış Yap -->
-          <button id="prof-logout" style="display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;border-radius:10px;border:1.5px solid rgba(239,68,68,.35);background:rgba(239,68,68,.08);color:#ef4444;cursor:pointer;font-size:14px;font-weight:700;width:100%">
+          <button id="prof-logout" style="display:flex;align-items:center;justify-content:center;gap:8px;padding:9px;border-radius:10px;border:1.5px solid rgba(239,68,68,.35);background:rgba(239,68,68,.08);color:#ef4444;cursor:pointer;font-size:14px;font-weight:700;width:100%">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
             Çıkış yap
           </button>
@@ -656,7 +705,8 @@ export function renderProfileModal(container) {
     </div>
   `;
 
-  const close = () => { container.innerHTML = ''; setState({ profileOpen: false }); };
+  const close = () => { escClosers.delete('profile'); container.innerHTML = ''; setState({ profileOpen: false }); };
+  escClosers.set('profile', close);
   container.querySelector('#prof-scrim').addEventListener('click', e => { if (e.target.id === 'prof-scrim') close(); });
   container.querySelector('#prof-close').addEventListener('click', close);
 

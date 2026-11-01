@@ -71,6 +71,12 @@ export function readableTextOn(hex) {
   return (r * 299 + g * 587 + b * 114) / 1000 > 160 ? '#191b2c' : '#ffffff';
 }
 
+/** Etiket zemini + okunaklı yazı rengi (style="" içine) */
+export function labelStyle(color) {
+  const bg = cssColor(color);
+  return `background:${bg};color:${readableTextOn(bg)}`;
+}
+
 /** Dar ekran (tablet/telefon): sidebar çekmece olur */
 export const compactQuery = window.matchMedia('(max-width: 900px)');
 
@@ -81,6 +87,11 @@ export function dueStyleStr(state) {
   if (state === 'soon')  return 'background:rgba(245,158,11,.12);color:#c27a0e';
   if (state === 'done')  return 'background:rgba(34,197,94,.16);color:#1f9d57';
   return 'background:var(--accent-soft);color:var(--accent)';
+}
+
+/** Açıklamanın düz metni (HTML etiketleri atılır): arama ve "açıklama var mı" için */
+export function descText(desc) {
+  return (desc || '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\s+/g, ' ').trim();
 }
 
 export function getCardView(c, listId) {
@@ -98,7 +109,7 @@ export function getCardView(c, listId) {
     color: c.color || null,
     completed: !!c.dueComplete,
     labels, assignees, hasLabels: labels.length > 0,
-    hasDesc: !!(c.desc && c.desc.trim()),
+    hasDesc: !!descText(c.desc),
     hasChecklist: total > 0,
     checklistLabel: done + '/' + total,
     checklistStyle: complete
@@ -110,7 +121,7 @@ export function getCardView(c, listId) {
     hasAttach:    (c.attachments || []).length > 0,
     cover, hasCover: !!coverAtt,
     hasDue: !!due, dueLabel: due ? due.label : '', dueStyle: due ? dueStyleStr(due.state) : '',
-    hasMeta: !!(due || (c.desc && c.desc.trim()) || total > 0 || (c.comments || []).length || (c.attachments || []).length || assignees.length),
+    hasMeta: !!(due || descText(c.desc) || total > 0 || (c.comments || []).length || (c.attachments || []).length || assignees.length),
   };
 }
 

@@ -1,11 +1,12 @@
 // ============================================================
-// SETTINGS — Sidebar'daki ayarlar popover'ı (şimdilik görünüm/tema)
+// SETTINGS — Sidebar'daki ayarlar popover'ı (yalnızca yöneticiye: kullanıcılar).
+// Tema üst çubuktaki anahtarda, bildirim ayarları Bildirimler sayfasında.
 // ============================================================
 import { state, setState } from './state.js';
 import { ICONS } from './helpers.js';
 
-const SUN = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>`;
-const MOON = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
+
+const USERS = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>`;
 
 let active = null;
 
@@ -28,26 +29,19 @@ export function openSettings(anchor) {
       <span>Ayarlar</span>
       <button type="button" class="settings-close" aria-label="Kapat">${ICONS.x}</button>
     </div>
-    <div class="settings-label">Görünüm</div>
-    <div class="theme-switch" role="radiogroup" aria-label="Tema">
-      <button type="button" class="theme-option" data-theme="light" role="radio">${SUN}<span>Açık</span></button>
-      <button type="button" class="theme-option" data-theme="dark" role="radio">${MOON}<span>Koyu</span></button>
-    </div>
+    ${state.isAdmin ? `
+      <div class="settings-label">Yönetim</div>
+      <button type="button" class="settings-row-btn" id="settings-users">${USERS}<span>Kullanıcılar</span></button>
+    ` : ''}
   `;
   document.body.appendChild(el);
 
-  const syncActive = () => el.querySelectorAll('.theme-option').forEach(b => {
-    const on = b.dataset.theme === state.theme;
-    b.classList.toggle('is-active', on);
-    b.setAttribute('aria-checked', String(on));
-  });
-  syncActive();
-
-  el.querySelectorAll('.theme-option').forEach(b => b.addEventListener('click', () => {
-    setState({ theme: b.dataset.theme });
-    syncActive();
-  }));
   el.querySelector('.settings-close').addEventListener('click', closeSettings);
+
+  el.querySelector('#settings-users')?.addEventListener('click', () => {
+    closeSettings();
+    setState({ usersOpen: true, navOpen: false });
+  });
 
   // Konum: butonun üstünde (sidebar altta), sığmazsa altında
   const r = anchor.getBoundingClientRect();

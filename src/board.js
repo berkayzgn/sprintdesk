@@ -7,13 +7,20 @@
 // zaman aktif yazımı bölmez (focus korunur).
 // ============================================================
 import { state, setState, getActiveBoard, getActiveLists } from './state.js';
-import { getCardView, escHtml, cssColor, boardMembers, collectImages, restoreImages, captureDrafts, compactQuery, ICONS } from './helpers.js';
+import { getCardView, descText, escHtml, cssColor, labelStyle, boardMembers, collectImages, restoreImages, captureDrafts, compactQuery, ICONS } from './helpers.js';
 import {
   moveCard, createCard, updateCard, deleteCard, createList, renameList as saveListName, deleteList as removeList,
   canEdit, toggleStar,
 } from './store.js';
 import { openMembersPopover, closeMembersPopover, refreshMembersPopover } from './membersPopover.js';
 import { openFilterPopover, closeFilterPopover, cardMatchesFilters, activeFilterCount } from './filters.js';
+import { renderListView } from './listView.js';
+import { confirmDialog } from './dialog.js';
+import { headerActionsHTML } from './notifications.js';
+import { boardSkeleton, rowsSkeleton } from './skeleton.js';
+
+const VIEW_BOARD = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="14" rx="1.5"/><rect x="14" y="3" width="7" height="9" rx="1.5"/></svg>`;
+const VIEW_LIST = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1" fill="currentColor"/><circle cx="3.5" cy="12" r="1" fill="currentColor"/><circle cx="3.5" cy="18" r="1" fill="currentColor"/></svg>`;
 
 const STAR_FILLED = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.6 6.8 19.2l1-5.8L3.5 9.2l5.9-.9z"/></svg>`;
 
@@ -83,6 +90,10 @@ export function renderBoard(container) {
 
   emptyEl.classList.add('hidden');
   boardEl.classList.remove('hidden');
+  const listMode = state.viewMode === 'list';
+  boardEl.classList.toggle('is-list-view', listMode);
+  if (listMode) { renderListView(boardEl); return; }
+  boardEl.onclick = boardEl.onkeydown = boardEl.onchange = null;
   renderBoardArea(boardEl);
 }
 
@@ -106,18 +117,37 @@ function renderTopbar(topbar) {
         <button class="invite-btn" id="members-btn" title="Üyeler ve davet" aria-label="Üyeler ve davet">${ICONS.userPlus}</button>
       </div>
       <div class="topbar-right">
+        <div class="view-switch" id="view-switch" role="radiogroup" aria-label="Görünüm">
+          <button type="button" class="view-option" data-view="board" role="radio" title="Pano görünümü (Kanban)">${VIEW_BOARD}<span>Pano</span></button>
+          <button type="button" class="view-option" data-view="list" role="radio" title="Liste görünümü (tablo)">${VIEW_LIST}<span>Liste</span></button>
+        </div>
         <button type="button" class="filter-btn" id="filter-btn" title="Filtrele" aria-label="Filtrele">
           ${ICONS.filter}<span class="filter-btn-label">Filtre</span><span class="filter-count hidden" id="filter-count"></span>
         </button>
-        <div class="search-box">
-          ${ICONS.search}
-          <input id="search-input" placeholder="Kart ara…" value="${escHtml(state.search)}">
+        <div class="search-box" id="search-box">
+          <button type="button" class="search-toggle" id="search-toggle" title="Kart ara" aria-label="Kart ara">${ICONS.search}</button>
+          <input id="search-input" placeholder="Kart ara…" value="${escHtml(state.search)}" aria-label="Kart ara">
+          <button type="button" class="search-close" id="search-close" title="Aramayı kapat" aria-label="Aramayı kapat">${ICONS.x}</button>
         </div>
+        ${headerActionsHTML()}
       </div>
     `;
 
-    // Arama: yazarken state'i bölmemek için debounce
+    // Arama: ikon butonu; açılınca diğer butonlar gizlenir (temiz üst çubuk)
     const searchInp = topbar.querySelector('#search-input');
+    const openSearch = () => { topbar.classList.add('is-searching'); searchInp.focus(); };
+    const closeSearch = () => {
+      topbar.classList.remove('is-searching');
+      if (searchInp.value) { searchInp.value = ''; setState({ search: '' }); }
+    };
+    topbar.querySelector('#search-toggle').addEventListener('click', openSearch);
+    topbar.querySelector('#search-close').addEventListener('click', closeSearch);
+    searchInp.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); closeSearch(); searchInp.blur(); } });
+    // Boşken dışarı tıklanırsa kapanır; yazılı aramada açık kalır
+    searchInp.addEventListener('blur', () => setTimeout(() => {
+      if (!searchInp.value && !topbar.querySelector('#search-box').contains(document.activeElement)) topbar.classList.remove('is-searching');
+    }, 120));
+    // Yazarken state'i bölmemek için debounce
     let searchTimer;
     searchInp.addEventListener('input', e => {
       clearTimeout(searchTimer);
@@ -131,6 +161,10 @@ function renderTopbar(topbar) {
     };
     topbar.querySelector('#members-btn').addEventListener('click', openMembers);
     topbar.querySelector('#members-row').addEventListener('click', openMembers);
+    topbar.querySelector('#view-switch').addEventListener('click', e => {
+      const opt = e.target.closest('.view-option');
+      if (opt && opt.dataset.view !== state.viewMode) setState({ viewMode: opt.dataset.view, addingCardFor: null, editingCardId: null });
+    });
     topbar.querySelector('#filter-btn').addEventListener('click', e => {
       e.stopPropagation();
       openFilterPopover(e.currentTarget);
@@ -151,6 +185,7 @@ function renderTopbar(topbar) {
     // Arama kutusu odakta değilse senkronla
     const inp = topbar.querySelector('#search-input');
     if (inp && document.activeElement !== inp && inp.value !== state.search) inp.value = state.search;
+    if (state.search) topbar.classList.add('is-searching');
   }
   renderTopbarMembers(topbar.querySelector('#members-row'), active);
   syncMenuButton(topbar.querySelector('#topbar-menu-btn'));
@@ -163,7 +198,12 @@ function renderTopbar(topbar) {
   }
   refreshMembersPopover();
 
-  for (const id of ['#star-btn', '#members-btn', '#filter-btn']) topbar.querySelector(id).classList.toggle('hidden', !active);
+  for (const id of ['#star-btn', '#members-btn', '#filter-btn', '#view-switch']) topbar.querySelector(id).classList.toggle('hidden', !active);
+  topbar.querySelectorAll('.view-option').forEach(b => {
+    const on = b.dataset.view === (state.viewMode === 'list' ? 'list' : 'board');
+    b.classList.toggle('is-active', on);
+    b.setAttribute('aria-checked', String(on));
+  });
   const star = topbar.querySelector('#star-btn');
   const starred = !!active?.starred;
   if (star.getAttribute('aria-pressed') !== String(starred)) {
@@ -203,18 +243,20 @@ function renderTopbarMembers(row, board) {
   row.dataset.key = key;
   const shown = members.slice(0, 5);
   row.innerHTML = shown.map(p =>
-    `<span class="member-avatar" style="background:${cssColor(p.color)}" title="${escHtml(p.name)}">${escHtml(p.initials)}</span>`
+    `<span class="member-avatar" data-user-id="${escHtml(p.id)}" style="background:${cssColor(p.color)}" title="${escHtml(p.name)}">${escHtml(p.initials)}</span>`
   ).join('') + (members.length > shown.length ? `<span class="member-overflow">+${members.length - shown.length}</span>` : '');
   row.title = members.map(m => m.name).join(', ');
 }
 
 // ---- Empty state ----
 function renderEmptyState(el, variant) {
-  if (el.__variant === variant) return;
-  el.__variant = variant;
+  const key = variant === 'loading' ? `loading-${state.viewMode}` : variant;
+  if (el.__variant === key) return;
+  el.__variant = key;
+  el.classList.toggle('is-loading', variant === 'loading');
 
   if (variant === 'loading') {
-    el.innerHTML = `<div class="loading-state" role="status"><span class="loading-spinner"></span>Yükleniyor…</div>`;
+    el.innerHTML = state.viewMode === 'list' ? `<div class="skel-lv">${rowsSkeleton(6)}</div>` : boardSkeleton();
     return;
   }
 
@@ -274,7 +316,7 @@ function renderBoardArea(boardEl) {
 
   getActiveLists().forEach(list => {
     const cards = list.cards
-      .filter(c => (!q || c.title.toLowerCase().includes(q) || (c.desc || '').toLowerCase().includes(q)) && cardMatchesFilters(c))
+      .filter(c => (!q || c.title.toLowerCase().includes(q) || descText(c.desc).toLowerCase().includes(q)) && cardMatchesFilters(c))
       .map(c => {
         const v = getCardView(c, list.id);
         v.editing = editable && state.editingCardId === c.id;
@@ -390,7 +432,7 @@ function buildCardHTML(card) {
   const commentHTML = card.hasComments ? `<span class="comment-badge">${ICONS.chat14} ${card.commentCount}</span>` : '';
   const attachHTML = card.hasAttach ? `<span class="attach-badge">${ICONS.attach14} ${card.attachCount}</span>` : '';
   const assigneesHTML = card.assignees.length
-    ? `<div class="assignees-row">${card.assignees.map(p => `<span class="card-avatar" style="background:${cssColor(p.color)}" title="${escHtml(p.name)}">${escHtml(p.initials)}</span>`).join('')}</div>`
+    ? `<div class="assignees-row">${card.assignees.map(p => `<span class="card-avatar" data-user-id="${escHtml(p.id)}" style="background:${cssColor(p.color)}" title="${escHtml(p.name)}">${escHtml(p.initials)}</span>`).join('')}</div>`
     : '';
   const metaHTML = card.hasMeta ? `
     <div class="card-meta">
@@ -401,7 +443,7 @@ function buildCardHTML(card) {
 
   const colorStrip = card.color ? `<div class="card-color-strip" style="background:${cssColor(card.color)}"></div>` : '';
   const labelsHTML = card.hasLabels
-    ? `<div class="card-labels">${card.labels.map(l => `<span class="card-label ${l.name ? '' : 'is-empty'}" style="background:${cssColor(l.color)}" title="${escHtml(l.name)}">${escHtml(l.name)}</span>`).join('')}</div>`
+    ? `<div class="card-labels">${card.labels.map(l => `<span class="card-label ${l.name ? '' : 'is-empty'}" style="${labelStyle(l.color)}" title="${escHtml(l.name)}">${escHtml(l.name)}</span>`).join('')}</div>`
     : '';
   const titleHTML = card.editing
     ? `<input class="card-title-input" value="${escHtml(card.title)}">`
@@ -669,9 +711,11 @@ function openCardMenu(btn, cardId) {
     menu.remove();
     setState({ editingCardId: cardId });
   });
-  menu.querySelector('[data-act="delete"]').addEventListener('click', () => {
+  menu.querySelector('[data-act="delete"]').addEventListener('click', async () => {
     menu.remove();
-    deleteCard(cardId);
+    const card = getActiveLists().flatMap(l => l.cards).find(c => c.id === cardId);
+    const ok = await confirmDialog({ title: 'Kart silinsin mi?', message: `"${card?.title || ''}" kartı; alt görevleri, yorumları ve dosyalarıyla birlikte silinecek.`, confirmText: 'Kartı sil', danger: true });
+    if (ok) deleteCard(cardId);
   });
   menu.querySelectorAll('.card-color-swatch').forEach(sw => {
     sw.addEventListener('click', () => {
@@ -693,7 +737,15 @@ function renameList(listId, name) {
   saveListName(listId, name);
 }
 
-function deleteList(listId) {
+async function deleteList(listId) {
+  const list = getActiveLists().find(l => l.id === listId);
+  const n = list?.cards.length || 0;
+  const ok = await confirmDialog({
+    title: `"${list?.title || ''}" listesi silinsin mi?`,
+    message: n ? `İçindeki ${n} kart da silinecek. Bu işlem geri alınamaz.` : 'Liste silinecek.',
+    confirmText: 'Listeyi sil', danger: true,
+  });
+  if (!ok) return;
   setState({ editingListId: null, addingCardFor: null });
   removeList(listId);
 }

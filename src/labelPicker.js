@@ -6,10 +6,15 @@
 // de görünür); arama kutusu ve düzenleme formu DOM'da tutulur.
 // ============================================================
 import { state } from './state.js';
-import { cssColor, escHtml, ICONS } from './helpers.js';
+import { escHtml, ICONS, labelStyle } from './helpers.js';
 import { findCard, toggleCardLabel, createLabel, updateLabel, deleteLabel } from './store.js';
+import { confirmDialog } from './dialog.js';
 
-export const LABEL_COLORS = ['#8b5cf6', '#6366f1', '#0ea5a3', '#10b981', '#f59e0b', '#f97316', '#f43f5e', '#64748b'];
+export const LABEL_COLORS = [
+  '#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#10b981',
+  '#0ea5a3', '#06b6d4', '#3b82f6', '#6366f1', '#8b5cf6', '#ec4899',
+  '#64748b',
+];
 
 const CHECK = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
 
@@ -47,15 +52,23 @@ export function openLabelPicker(anchor, cardId) {
   document.body.appendChild(el);
   const body = el.querySelector('.label-picker-body');
 
+  const isCustom = c => !LABEL_COLORS.includes(c);
+
+  // Paletin sonunda serbest renk: tarayıcının renk seçicisi açılır
   const colorRow = selected => `
     <div class="label-color-row">
       ${LABEL_COLORS.map(c => `<button type="button" class="label-color ${c === selected ? 'is-selected' : ''}" data-color="${c}" style="background:${c}" aria-label="Renk ${c}"></button>`).join('')}
+      <label class="label-color label-color-custom ${isCustom(selected) ? 'is-selected' : ''}" title="Özel renk" ${isCustom(selected) ? `style="background:${selected}"` : ''}>
+        <input type="color" class="label-color-input" value="${isCustom(selected) ? selected : '#360185'}" aria-label="Özel renk seç">
+      </label>
     </div>`;
 
   const editForm = label => `
-    <form class="label-edit-form" data-id="${label ? escHtml(label.id) : 'new'}">
-      <input class="member-picker-search label-name-inp" placeholder="Etiket adı" maxlength="40" value="${escHtml(label?.name || '')}">
+    <form class="label-edit-form" data-id="${label ? escHtml(label.id) : 'new'}" novalidate>
+      <span class="label-swatch label-preview" style="${labelStyle(draftColor)}">${escHtml(label?.name || '') || 'Etiket önizleme'}</span>
+      <input class="member-picker-search label-name-inp" placeholder="Etiket adı (ör. Acil, Tasarım)" maxlength="40" value="${escHtml(label?.name || '')}">
       ${colorRow(draftColor)}
+      <div class="label-form-error" role="alert"></div>
       <div class="label-edit-actions">
         ${label ? `<button type="button" class="label-delete">Sil</button>` : ''}
         <span style="flex:1"></span>
@@ -77,11 +90,11 @@ export function openLabelPicker(anchor, cardId) {
         ${labels.length ? labels.map(l => editingId === l.id ? editForm(l) : `
           <div class="label-row">
             <button type="button" class="member-picker-item label-toggle ${card.labels.includes(l.id) ? 'is-selected' : ''}" data-id="${escHtml(l.id)}" aria-pressed="${card.labels.includes(l.id)}">
-              <span class="label-swatch" style="background:${cssColor(l.color)}">${escHtml(l.name)}</span>
+              <span class="label-swatch" style="${labelStyle(l.color)}">${escHtml(l.name)}</span>
               <span class="member-picker-check">${CHECK}</span>
             </button>
             <button type="button" class="label-edit-btn" data-id="${escHtml(l.id)}" title="Düzenle" aria-label="${escHtml(l.name)} etiketini düzenle">${ICONS.edit13}</button>
-          </div>`).join('') : '<div class="member-picker-empty">Bu board\'da etiket yok</div>'}
+          </div>`).join('') : '<div class="member-picker-empty">Bu board\'da henüz etiket yok. İlk etiketini oluştur.</div>'}
       </div>
       ${editingId === 'new' ? editForm(null) : `<button type="button" class="label-new-btn">${ICONS.plus} Yeni etiket</button>`}
     `;
@@ -89,8 +102,27 @@ export function openLabelPicker(anchor, cardId) {
     const nameInp = body.querySelector('.label-name-inp');
     if (nameInp) {
       if (typed !== undefined) nameInp.value = typed;
+      updatePreview();
       nameInp.focus();
     }
+  };
+
+  const updatePreview = () => {
+    const preview = body.querySelector('.label-preview');
+    if (!preview) return;
+    preview.textContent = body.querySelector('.label-name-inp').value.trim() || 'Etiket önizleme';
+    preview.setAttribute('style', labelStyle(draftColor));
+  };
+
+  const pickColor = color => {
+    draftColor = color;
+    body.querySelectorAll('.label-color').forEach(b => b.classList.toggle('is-selected', b.dataset.color === color));
+    const custom = body.querySelector('.label-color-custom');
+    if (custom) {
+      custom.classList.toggle('is-selected', isCustom(color));
+      custom.style.background = isCustom(color) ? color : '';
+    }
+    updatePreview();
   };
 
   body.addEventListener('click', e => {
@@ -112,25 +144,45 @@ export function openLabelPicker(anchor, cardId) {
       render();
       return;
     }
-    const color = e.target.closest('.label-color');
-    if (color) {
-      draftColor = color.dataset.color;
-      body.querySelectorAll('.label-color').forEach(b => b.classList.toggle('is-selected', b === color));
-      return;
-    }
+    const color = e.target.closest('.label-color[data-color]');
+    if (color) { pickColor(color.dataset.color); return; }
     if (e.target.closest('.label-cancel')) { editingId = null; body.innerHTML = ''; render(); return; }
     if (e.target.closest('.label-delete')) {
-      deleteLabel(editingId);
-      editingId = null;
-      body.innerHTML = '';
-      render();
+      const id = editingId;
+      const label = state.labelsByBoard[state.activeBoardId]?.[id];
+      confirmDialog({ title: 'Etiket silinsin mi?', message: `"${label?.name || ''}" etiketi bu board'daki tüm kartlardan kaldırılacak.`, confirmText: 'Sil', danger: true })
+        .then(ok => {
+          if (!ok) return;
+          deleteLabel(id);
+          editingId = null;
+          body.innerHTML = '';
+          render();
+        });
+    }
+  });
+
+  body.addEventListener('input', e => {
+    if (e.target.matches('.label-color-input')) pickColor(e.target.value.toLowerCase());
+    if (e.target.matches('.label-name-inp')) {
+      updatePreview();
+      body.querySelector('.label-form-error').textContent = '';
     }
   });
 
   body.addEventListener('submit', e => {
     e.preventDefault();
-    const name = body.querySelector('.label-name-inp').value.trim();
-    if (editingId === 'new') createLabel(name, draftColor);
+    const nameInp = body.querySelector('.label-name-inp');
+    const name = nameInp.value.trim();
+    if (!name) {
+      body.querySelector('.label-form-error').textContent = 'Etikete bir isim yaz.';
+      nameInp.focus();
+      return;
+    }
+    if (editingId === 'new') {
+      // Karttan açıldıysa yeni etiket doğrudan karta da eklenir
+      const id = createLabel(name, draftColor);
+      if (id) toggleCardLabel(cardId, id);
+    }
     else updateLabel(editingId, { name, color: draftColor });
     editingId = null;
     body.innerHTML = '';
@@ -142,6 +194,8 @@ export function openLabelPicker(anchor, cardId) {
   });
 
   el.querySelector('.member-picker-close').addEventListener('click', closeLabelPicker);
+  // Board'da hiç etiket yoksa doğrudan oluşturma formuyla aç
+  if (!Object.keys(state.labelsByBoard[state.activeBoardId] || {}).length) editingId = 'new';
   render();
 
   // Konum: çapanın altı, sığmazsa üstü

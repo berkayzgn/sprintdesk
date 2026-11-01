@@ -10,7 +10,7 @@ const listeners = new Set();
 
 const STORAGE_KEY = 'sprintdesk.prefs.v1';
 const LEGACY_STORAGE_KEY = 'flowdesk.prefs.v1';
-const PERSIST_KEYS = ['theme', 'sideExpanded', 'activeBoardId'];
+const PERSIST_KEYS = ['theme', 'sideExpanded', 'activeBoardId', 'viewMode'];
 
 // Eski sürümlerin tarayıcıda tuttuğu demo verisini ve ek dosyalarını temizle
 try {
@@ -55,6 +55,7 @@ export const state = {
   theme: 'light',
   style: 'A',
   sideExpanded: true,
+  viewMode: 'board',       // 'board' (Kanban) | 'list' (tablo) — cihaza özel tercih
   navOpen: false,          // dar ekranda sidebar çekmecesi açık mı
   openCardId: null,
   search: '',
@@ -68,12 +69,16 @@ export const state = {
   editingCardId: null,    // board içi kart adı düzenleme
   newBoardModal: false,
   profileOpen: false,
+  usersOpen: false,
+  page: 'boards',         // 'boards' | 'community' | 'calendar' | 'notes' | 'notifications' | 'performance'       // yönetici: kullanıcılar penceresi
   // Oturum (bkz. auth.js)
   authReady: false,
   authed: false,
   userId: null,
   userEmail: '',
   userName: '',
+  isAdmin: false,             // app_metadata.is_admin — hesap açabilir
+  mustChangePassword: false,  // app_metadata.must_change_password — şifre belirleme ekranı
   activeBoardId: null,
   ...emptyData(),
   ...loadPersisted(),
