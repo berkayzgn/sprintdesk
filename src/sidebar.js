@@ -39,6 +39,31 @@ function boardTile(b) {
 }
 
 const FULL = 256, MINI = 64;
+
+// Board araması: state'e konmaz (her tuşta sidebar yeniden çizilip odak kaybolmasın);
+// sorgu burada tutulur ve her çizimden sonra DOM üzerinde yeniden uygulanır
+let boardQuery = '';
+let searchOpen = false; // arama kutusu ikonla açılır; yazı varken açık kalır
+/** Büyük/küçük harf ve Türkçe karakter duyarsız karşılaştırma: "sirket" → "Şirket" */
+function foldText(t) {
+  return String(t || '').toLocaleLowerCase('tr-TR')
+    .replace(/ı/g, 'i').replace(/ş/g, 's').replace(/ğ/g, 'g')
+    .replace(/ü/g, 'u').replace(/ö/g, 'o').replace(/ç/g, 'c')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+}
+function applyBoardFilter(container) {
+  const q = foldText(boardQuery);
+  const rows = container.querySelectorAll('#sidebar-boards .board-btn-row');
+  let visible = 0;
+  rows.forEach(row => {
+    // Düzenlenen satır her zaman görünür kalsın
+    const show = !q || row.classList.contains('is-editing') || foldText(row.dataset.name).includes(q);
+    row.hidden = !show;
+    if (show) visible++;
+  });
+  container.querySelector('#sidebar-boards-empty')?.toggleAttribute('hidden', !(q && rows.length && !visible));
+  container.querySelector('#board-search-clear')?.toggleAttribute('hidden', !boardQuery);
+}
 let lastWidth = null; // açılıp kapanırken genişlik animasyonu için önceki genişlik
 
 const CHEVRON_RIGHT = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m13 17 5-5-5-5"/><path d="m6 17 5-5-5-5"/></svg>`;
@@ -63,6 +88,11 @@ export function renderSidebar(container) {
 
   // Board adı düzenlenirken board listesi sunucudan yenilenirse yazılan kaybolmasın
   const restoreDrafts = captureDrafts(container, '#edit-board-inp');
+  // Arama kutusu odaktaysa yeniden çizimden sonra odağı ve imleci geri ver
+  const prevSearch = container.querySelector('#board-search-inp');
+  const searchFocus = prevSearch && document.activeElement === prevSearch
+    ? [prevSearch.selectionStart, prevSearch.selectionEnd] : null;
+  const showSearch = expanded && boards.length > 0;
   container.innerHTML = `
     <aside id="sidebar" class="${expanded ? '' : 'is-collapsed'}" style="${w ? `width:${lastWidth && lastWidth !== w ? lastWidth : w}` : ''}">
       <div class="sidebar-header">
@@ -92,7 +122,17 @@ export function renderSidebar(container) {
       </nav>
 
       <nav class="sidebar-nav" aria-label="Board'lar">
-        ${expanded ? `<div class="sidebar-section-label">Board'lar</div>` : ''}
+        ${expanded ? `
+          <div class="sidebar-section-label board-section-head">
+            <span>Board'lar</span>
+            ${showSearch ? `<button type="button" class="board-search-toggle ${searchOpen ? 'is-active' : ''}" id="board-search-toggle" title="Board ara" aria-label="Board ara" aria-expanded="${searchOpen}">${ICONS.search}</button>` : ''}
+          </div>` : ''}
+        ${showSearch ? `
+          <div class="board-search" id="board-search" role="search" ${searchOpen ? '' : 'hidden'}>
+            ${ICONS.search}
+            <input id="board-search-inp" type="search" placeholder="Board ara…" value="${escHtml(boardQuery)}" aria-label="Board ara" autocomplete="off" spellcheck="false">
+            <button type="button" class="board-search-clear" id="board-search-clear" title="Aramayı temizle" aria-label="Aramayı temizle" hidden>${X_ICON}</button>
+          </div>` : ''}
         <div class="sidebar-boards" id="sidebar-boards">
           ${boards.map(b => {
             const isActive = b.id === activeId && s.page === 'boards';
@@ -100,7 +140,7 @@ export function renderSidebar(container) {
 
             if (isEditing && expanded) {
               return `
-                <div class="board-btn-row active-row is-editing">
+                <div class="board-btn-row active-row is-editing" data-name="${escHtml(b.name)}">
                   ${boardTile(b)}
                   <input id="edit-board-inp" class="board-edit-input" value="${escHtml(b.name)}" aria-label="Board adı">
                   <button class="board-action-btn confirm-edit" data-id="${b.id}" title="Kaydet">${CHECK_ICON}</button>
@@ -110,7 +150,7 @@ export function renderSidebar(container) {
             }
 
             return `
-              <div class="board-btn-row ${isActive ? 'active-row' : ''}">
+              <div class="board-btn-row ${isActive ? 'active-row' : ''}" data-name="${escHtml(b.name)}">
                 <button class="board-btn ${isActive ? 'active' : ''} board-select" data-id="${b.id}"
                   ${expanded ? '' : `title="${escHtml(b.name)}"`} aria-label="${escHtml(b.name)}" ${isActive ? 'aria-current="page"' : ''}>
                   ${boardTile(b)}
@@ -126,6 +166,7 @@ export function renderSidebar(container) {
             `;
           }).join('')}
         </div>
+        ${showSearch ? `<div class="sidebar-boards-empty" id="sidebar-boards-empty" hidden>Eşleşen board yok</div>` : ''}
         <button class="add-board-btn" id="add-board-btn" ${expanded ? '' : 'title="Yeni board"'} aria-label="Yeni board">
           ${ICONS.plus}
           ${expanded ? `<span>Yeni board</span>` : ''}
@@ -147,6 +188,48 @@ export function renderSidebar(container) {
       </div>
     </aside>
   `;
+
+  // Board araması (daraltılmış sidebar'da kutu yok → filtre de uygulanmaz)
+  const searchInp = container.querySelector('#board-search-inp');
+  if (searchInp) {
+    const setQuery = v => { boardQuery = v; applyBoardFilter(container); };
+    const box = container.querySelector('#board-search');
+    const toggleBtn = container.querySelector('#board-search-toggle');
+    const setOpen = open => {
+      searchOpen = open;
+      box.hidden = !open;
+      toggleBtn.classList.toggle('is-active', open);
+      toggleBtn.setAttribute('aria-expanded', String(open));
+      if (open) searchInp.focus();
+      else if (searchInp.value) { searchInp.value = ''; setQuery(''); }
+    };
+    toggleBtn.addEventListener('click', () => setOpen(!searchOpen));
+    // İkona basarken input odağı kaybetmesin (yoksa blur kapatıp tık yeniden açabilir)
+    toggleBtn.addEventListener('mousedown', e => { if (searchOpen) e.preventDefault(); });
+    // Boşken dışarı tıklanırsa kapanır; yazılı aramada açık kalır
+    searchInp.addEventListener('blur', () => setTimeout(() => {
+      if (searchOpen && !searchInp.value && container.contains(searchInp)) setOpen(false);
+    }, 120));
+    searchInp.addEventListener('input', () => setQuery(searchInp.value));
+    searchInp.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setOpen(false); searchInp.blur();
+      } else if (e.key === 'Enter') {
+        // Tek/ilk eşleşen board'u aç
+        const first = container.querySelector('#sidebar-boards .board-btn-row:not([hidden]) .board-select');
+        if (first) { e.preventDefault(); first.click(); }
+      }
+    });
+    container.querySelector('#board-search-clear').addEventListener('click', () => {
+      searchInp.value = ''; setQuery(''); searchInp.focus();
+    });
+    applyBoardFilter(container);
+    if (searchFocus) {
+      searchInp.focus();
+      try { searchInp.setSelectionRange(...searchFocus); } catch {}
+    }
+  }
 
   // Board seç — geçici UI durumlarını temizle
   container.querySelectorAll('.board-select').forEach(btn => {
