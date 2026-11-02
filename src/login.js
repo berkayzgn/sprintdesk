@@ -9,7 +9,6 @@
 import { state } from './state.js';
 import { escHtml } from './helpers.js';
 import { signIn, signOut, setInitialPassword } from './auth.js';
-import logoUrl from './assets/logo.webp';
 
 export const MIN_PASSWORD = 8;
 
@@ -91,8 +90,7 @@ export function renderLogin(container) {
       <div id="login-left">
         <div id="login-card" data-mode="${mode}">
           <div class="login-brand">
-            <span class="brand-logo"><img src="${logoUrl}" alt="KYNC Teknoloji"></span>
-            <span class="login-brand-name">Sprintdesk</span>
+            <span class="login-brand-name">Task Manager</span>
           </div>
           <h1 class="login-title">${copy.title}</h1>
           <p class="login-sub">${copy.sub}</p>
