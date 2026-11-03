@@ -1,0 +1,979 @@
+/** Kart detayı, yeni board ve profil pencereleri. */
+import { state, setState, getActiveLists, getActiveBoard } from '../core/state.js';
+import {
+  findRawCard,
+  getOpenCardView,
+  escHtml,
+  cssColor,
+  labelStyle,
+  boardMembers,
+  collectImages,
+  restoreImages,
+  captureDrafts,
+  ICONS,
+  currentUserDisplay,
+} from '../lib/helpers.js';
+import { openMemberPicker, closeMemberPicker } from '../components/memberPicker.js';
+import { showToast } from '../components/toast.js';
+import { openRangePicker, closeRangePicker } from '../components/datepicker.js';
+import { openLabelPicker, closeLabelPicker, refreshLabelPicker } from '../components/labelPicker.js';
+import { signOut, changePassword, deleteAccount } from '../core/auth.js';
+import { createEditor, saveSelection, restoreSelection } from '../components/richtext.js';
+import { confirmDialog } from '../components/dialog.js';
+import {
+  updateCard,
+  setCardAssignees,
+  addChecklistItem,
+  updateChecklistItem,
+  deleteChecklistItem,
+  addComment,
+  addAttachment,
+  removeAttachment,
+  createBoard,
+  accountDeletionImpact,
+  canEdit,
+  updateProfile,
+} from '../core/store.js';
+import { MAX_ATTACHMENT_BYTES } from '../core/storage.js';
+
+const CHECK16 = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`;
+const CLOSE18 = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 6 6 18M6 6l12 12"/></svg>`;
+const CLOSE20 = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 6 6 18M6 6l12 12"/></svg>`;
+const LOGOUT_ICON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>`;
+const FILE_ICON = `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>`;
+
+const BOARD_COLORS = ['#360185', '#FBC02D', '#10CAB9', '#FE6ABF'];
+// profiles trigger'ındaki paletle aynı
+const AVATAR_COLORS = ['#6366f1', '#8b5cf6', '#0ea5a3', '#10b981', '#f59e0b', '#f43f5e', '#3b82f6'];
+const MIN_PASSWORD_LENGTH = 8;
+const MAX_ATTACHMENT_MB = MAX_ATTACHMENT_BYTES / (1024 * 1024);
+
+/** Kısa, büyük harfli dosya uzantısı (thumbnail etiketi için) */
+function fileExt(name) {
+  const m = /\.([a-z0-9]+)$/i.exec(name || '');
+  return m ? m[1].toUpperCase().slice(0, 4) : 'DOSYA';
+}
+
+function fmtSize(bytes) {
+  if (!bytes && bytes !== 0) return '';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+/** Sınırı aşan dosya için hata gösterir ve false döner */
+function checkAttachmentSize(file) {
+  if (file.size <= MAX_ATTACHMENT_BYTES) return true;
+  showToast(`${file.name} çok büyük (en fazla ${MAX_ATTACHMENT_MB} MB).`, 'error');
+  return false;
+}
+
+// Fare basılıyken gelen blur'un commit'i tıklama bitene kadar ertelenir;
+// yoksa re-render basılan butonu silip tıklamayı yutar.
+let pointerDown = false;
+document.addEventListener(
+  'pointerdown',
+  () => {
+    pointerDown = true;
+  },
+  true,
+);
+document.addEventListener(
+  'pointerup',
+  () => {
+    pointerDown = false;
+  },
+  true,
+);
+
+function afterPointerUp(fn) {
+  if (!pointerDown) {
+    fn();
+    return;
+  }
+  document.addEventListener('pointerup', () => setTimeout(fn, 0), { once: true, capture: true });
+}
+
+// Esc önce üstteki katmanı (seçici, onay, editör menüsü) kapatır. Katman kendini
+// kapatmadan önce görülsün diye kontrol window capture aşamasında yapılır.
+const OVERLAYS =
+  '.dlg-scrim, .member-picker, .air-datepicker.-active-, .rte-menu, .rte-linkpop, .settings-popover, .cal-scrim, .notif-pop, .hovercard, .um-menu';
+let overlayAtEsc = false;
+window.addEventListener(
+  'keydown',
+  e => {
+    if (e.key === 'Escape') overlayAtEsc = !!document.querySelector(OVERLAYS);
+  },
+  true,
+);
+// Açık pencere adı → kapatma fonksiyonu
+const escClosers = new Map();
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || e.isComposing || overlayAtEsc) return;
+  // Profil ve yeni board kartın üstünde açılabilir; en üstteki kapanır
+  for (const name of ['profile', 'newBoard', 'card']) {
+    const close = escClosers.get(name);
+    if (close) {
+      e.preventDefault();
+      close();
+      return;
+    }
+  }
+});
+
+// innerHTML değişirken Chrome odaktaki alan için blur gönderir; bu kullanıcı çıkışı değildir
+let rebuilding = false;
+
+let fileInput = null;
+
+function ensureFileInput() {
+  if (fileInput) return;
+  fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.multiple = true;
+  fileInput.style.display = 'none';
+  document.body.appendChild(fileInput);
+  fileInput.addEventListener('change', async e => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    const cardId = state.openCardId;
+    if (!files.length || !cardId) return;
+
+    for (const f of files) {
+      if (!checkAttachmentSize(f)) continue;
+      showToast(`${f.name} yükleniyor…`);
+      await addAttachment(cardId, f);
+    }
+  });
+}
+
+/** Tarih aralığı çipi; görünmez input takvimin konum ve odak çapasıdır */
+function dueChipHTML({ key, startAt, dueAt, label, style, emptyText, compact = false }) {
+  const set = !!dueAt;
+  return `
+    <span class="due-chip ${set ? 'is-set' : ''} ${compact ? 'compact' : ''}" data-due-key="${escHtml(key)}"
+      data-start="${escHtml(startAt || '')}" data-due="${escHtml(dueAt || '')}" style="${set ? style : ''}">
+      <input class="due-anchor" readonly tabindex="-1" aria-hidden="true">
+      <button type="button" class="due-chip-open" title="Başlangıç ve bitiş tarihi seç">${ICONS.cal}<span>${escHtml(set ? label : emptyText)}</span></button>
+      ${set ? `<button type="button" class="due-chip-clear" title="Tarihi kaldır">${ICONS.x}</button>` : ''}
+    </span>
+  `;
+}
+
+function bindDueChips(root, onChange) {
+  root.querySelectorAll('.due-chip').forEach(chip => {
+    const key = chip.dataset.dueKey;
+    chip.querySelector('.due-chip-open').addEventListener('click', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      openRangePicker(
+        chip.querySelector('.due-anchor'),
+        { startAt: chip.dataset.start || null, dueAt: chip.dataset.due || null },
+        range => onChange(key, range),
+      );
+    });
+    chip.querySelector('.due-chip-clear')?.addEventListener('click', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      onChange(key, { startAt: null, dueAt: null });
+    });
+  });
+}
+
+export function renderModal(container) {
+  ensureFileInput();
+  // Kart açıkken modalın herhangi bir yerine yapıştırılan dosya karta eklenir
+  if (!container.__pasteBound) {
+    container.__pasteBound = true;
+    container.addEventListener('paste', async e => {
+      const files = [...(e.clipboardData?.files || [])];
+      const cardId = state.openCardId;
+      if (!files.length || !cardId || !canEdit()) return;
+      e.preventDefault();
+      for (const f of files) {
+        if (!checkAttachmentSize(f)) continue;
+        // Panodan gelen görseller hep "image.png" adını taşır; tarihli ad verilir
+        const named =
+          f.name && f.name !== 'image.png'
+            ? f
+            : new File(
+                [f],
+                `yapistirilan-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.${f.type.split('/')[1] || 'png'}`,
+                { type: f.type },
+              );
+        showToast(`${named.name} karta ekleniyor…`);
+        await addAttachment(cardId, named);
+      }
+    });
+  }
+  const found = state.openCardId ? findRawCard(getActiveLists(), state.openCardId) : null;
+  if (!found) {
+    escClosers.delete('card');
+    closeRangePicker();
+    closeMemberPicker();
+    closeLabelPicker();
+    rebuilding = true;
+    container.innerHTML = '';
+    rebuilding = false;
+    return;
+  }
+
+  const cv = getOpenCardView(found.card, found.listTitle);
+  const pct = cv.checklistPct;
+  const editable = canEdit();
+  const ro = editable ? '' : 'readonly';
+
+  // Aynı kart yeniden çiziliyorsa scroll ve taslaklar korunur
+  const prevScrim = container.querySelector('#modal-scrim');
+  const sameCard = prevScrim && prevScrim.dataset.cardId === cv.id;
+  const prevScroll = sameCard ? prevScrim.scrollTop : 0;
+  // Yorum/alt görev taslağı her zaman, başlık yalnızca odaktayken korunur
+  const restoreDrafts = sameCard ? captureDrafts(container, '#modal-comment-ta, #checklist-add-inp') : () => {};
+  const restoreEditing = sameCard ? captureDrafts(container, '#modal-title-inp', undefined, true) : () => {};
+  // Yazılan açıklama editörü yeniden takılır; imleç ve geri al geçmişi kaybolmaz
+  const oldEditor = container.querySelector('.rte');
+  const keepEditor = sameCard && oldEditor && oldEditor.contains(document.activeElement) ? oldEditor : null;
+  const savedSel = keepEditor ? saveSelection(keepEditor) : null;
+  if (keepEditor) keepEditor.suspended = true;
+  else oldEditor?.destroy?.();
+  const oldImages = sameCard ? collectImages(container) : new Map();
+  if (!sameCard) {
+    closeMemberPicker();
+    closeLabelPicker();
+  }
+
+  rebuilding = true;
+  container.innerHTML = `
+    <div id="modal-scrim" class="${sameCard ? '' : 'is-entering'} ${editable ? '' : 'is-readonly'}" data-card-id="${escHtml(cv.id)}">
+      <div class="modal-box">
+        ${cv.hasCover ? `<div class="modal-cover">${cv.cover ? `<img src="${escHtml(cv.cover)}" alt="">` : ''}</div>` : ''}
+
+        <div class="modal-titlebar">
+          <button type="button" class="modal-complete-btn ${cv.dueComplete ? 'is-done' : ''}" id="modal-complete-btn" aria-pressed="${cv.dueComplete}"
+            title="${cv.dueComplete ? 'Tamamlanmadı olarak işaretle' : 'Tamamlandı olarak işaretle'}" ${editable ? '' : 'disabled'}>
+            ${CHECK16}
+          </button>
+          <div class="modal-title-area">
+            <input class="modal-title-input" id="modal-title-inp" value="${escHtml(cv.title)}" placeholder="Kart başlığı…" ${ro}>
+            <div class="modal-list-label">Liste: <span>${escHtml(cv.listTitle)}</span></div>
+          </div>
+          <button class="modal-close-btn" id="modal-close-btn">${ICONS.x20}</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="modal-main">
+
+            <div style="display:flex;gap:22px;flex-wrap:wrap">
+              <div>
+                <div class="field-label">Etiketler</div>
+                <div class="modal-labels">
+                  ${cv.labels.map(l => `<button type="button" class="card-label modal-label ${l.name ? '' : 'is-empty'} label-open" style="${labelStyle(l.color)}" title="${escHtml(l.name)}">${escHtml(l.name)}</button>`).join('')}
+                  <button type="button" class="label-add-btn label-open" id="label-add-btn" title="Etiket ekle / çıkar" aria-label="Etiket ekle / çıkar">${ICONS.plus}</button>
+                </div>
+              </div>
+              <div>
+                <div class="field-label">Tarih</div>
+                <div class="due-field">
+                  ${dueChipHTML({ key: 'card', startAt: cv.startAt, dueAt: cv.dueAt, label: cv.dueLabel, style: cv.dueStyle, emptyText: 'Tarih ekle' })}
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div class="section-heading">${ICONS.desc}<span>Açıklama</span></div>
+              <div id="modal-desc-slot"></div>
+            </div>
+
+            <div>
+              <div class="section-heading">
+                ${ICONS.check}<span>Alt görevler</span>
+                <span class="count">${cv.checklistDone}/${cv.checklistTotal}</span>
+              </div>
+              ${
+                cv.hasChecklist
+                  ? `
+              <div class="progress-bar">
+                <div class="progress-fill" style="width:${pct}%"></div>
+              </div>`
+                  : ''
+              }
+              <div class="checklist-items" id="checklist-items">
+                ${cv.checklist
+                  .map(
+                    it => `
+                  <div class="checklist-item ${it.dueAt ? 'has-due' : ''} ${it.assignee ? 'has-assignee' : ''}">
+                    <label class="checklist-check">
+                      <input type="checkbox" data-item-id="${escHtml(it.id)}" ${it.done ? 'checked' : ''} ${editable ? '' : 'disabled'}>
+                      <span class="item-text ${it.done ? 'done' : ''}">${escHtml(it.text)}</span>
+                    </label>
+                    <div class="checklist-meta">
+                    <button type="button" class="item-assignee ${it.assignee ? 'is-set' : ''}" data-item-id="${escHtml(it.id)}"
+                      title="${it.assignee ? escHtml(it.assignee.name) + ' — değiştir' : 'Kişi ata'}"
+                      ${it.assignee ? `style="background:${cssColor(it.assignee.color)}"` : ''}>
+                      ${it.assignee ? escHtml(it.assignee.initials) : ICONS.userPlus}
+                    </button>
+                    ${dueChipHTML({ key: it.id, startAt: it.startAt, dueAt: it.dueAt, label: it.dueLabel, style: it.dueStyle, emptyText: 'Tarih', compact: true })}
+                    </div>
+                    <button class="delete-item-btn" data-item-id="${escHtml(it.id)}" type="button" title="Sil">${ICONS.trash}</button>
+                  </div>
+                `,
+                  )
+                  .join('')}
+              </div>
+              <div class="checklist-add-row">
+                <input class="checklist-add-input" id="checklist-add-inp" placeholder="Alt görev ekle…">
+                <button class="btn-add-item" id="checklist-add-btn">Ekle</button>
+              </div>
+            </div>
+
+            <div>
+              <div class="section-heading">${ICONS.attach}<span>Ekler</span></div>
+              <div class="attachments-grid" id="attachments-grid">
+                ${cv.attachments
+                  .map(
+                    att => `
+                  <div class="attachment-thumb">
+                    <div class="thumb-img">
+                      ${
+                        att.type === 'image'
+                          ? att.url
+                            ? `<img src="${escHtml(att.url)}" alt="${escHtml(att.name)}">`
+                            : ''
+                          : `<a class="file-thumb" ${att.url ? `href="${escHtml(att.url)}"` : ''} download="${escHtml(att.name)}" title="${escHtml(att.name)}">
+                             ${FILE_ICON}
+                             <span class="file-ext">${escHtml(fileExt(att.name))}</span>
+                           </a>`
+                      }
+                    </div>
+                    <div class="attachment-name">${escHtml(att.name)}${att.size ? `<span class="attach-size"> · ${fmtSize(att.size)}</span>` : ''}</div>
+                    <button class="remove-attach-btn" data-att-id="${escHtml(att.id)}">${ICONS.x}</button>
+                  </div>
+                `,
+                  )
+                  .join('')}
+                <button class="upload-btn" id="upload-btn">
+                  ${ICONS.attach}
+                  Dosya Ekle
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-rail">
+            <div>
+              <div class="field-label">Üyeler</div>
+              <div class="rail-members">
+                ${cv.assignees
+                  .map(
+                    p => `
+                  <button type="button" class="rail-avatar card-member-open" data-user-id="${escHtml(p.id)}" style="background:${cssColor(p.color)}" title="${escHtml(p.name)}">${escHtml(p.initials)}</button>
+                `,
+                  )
+                  .join('')}
+                <button type="button" class="add-member-btn card-member-open" id="card-members-btn" title="Üye ekle / çıkar">${ICONS.plus}</button>
+              </div>
+            </div>
+
+            <div class="rail-divider"></div>
+
+            <div style="display:flex;flex-direction:column;gap:0">
+              <div class="field-label">Aktivite · ${cv.comments.length} yorum</div>
+
+              <div class="comment-composer">
+                <span class="avatar" style="width:32px;height:32px;font-size:11px;flex:0 0 auto">${escHtml(currentUserDisplay(state).initials)}</span>
+                <div class="comment-composer-body">
+                  <textarea class="comment-textarea" id="modal-comment-ta" rows="3" placeholder="Yorum yaz… (Enter ile gönder, alt satır için Shift + Enter)"></textarea>
+                  <button class="send-btn" id="comment-send-btn">Gönder</button>
+                </div>
+              </div>
+
+              <div class="comments-list">
+                ${cv.comments
+                  .map(
+                    cm => `
+                  <div class="comment-item">
+                    <span class="avatar" data-user-id="${escHtml(cm.who.id || '')}" style="width:32px;height:32px;font-size:11px;flex:0 0 auto;background:${cssColor(cm.who.color)}">${escHtml(cm.who.initials)}</span>
+                    <div class="comment-body">
+                      <div class="comment-header">
+                        <span class="comment-name">${escHtml(cm.who.name)}</span>
+                        <span class="comment-time">${escHtml(cm.time)}</span>
+                      </div>
+                      <div class="comment-text">${escHtml(cm.text)}</div>
+                    </div>
+                  </div>
+                `,
+                  )
+                  .join('')}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Metin alanları uncontrolled: değerler blur/buton/kapatma anında DOM'dan okunur
+  const cardId = state.openCardId;
+  const scrim = container.querySelector('#modal-scrim');
+  const titleInp = container.querySelector('#modal-title-inp');
+  const commentTa = container.querySelector('#modal-comment-ta');
+  const checkInp = container.querySelector('#checklist-add-inp');
+
+  const descSlot = container.querySelector('#modal-desc-slot');
+  const editor =
+    keepEditor ||
+    createEditor({
+      html: cv.desc,
+      editable,
+      placeholder: editable
+        ? 'Daha ayrıntılı bir açıklama ekle… (üstteki düğmelerle kalın, renkli, altı çizili yazabilirsin)'
+        : 'Açıklama yok',
+      onCommit: desc => updateCard(cardId, { desc }),
+    });
+  descSlot.replaceWith(editor);
+  if (keepEditor) {
+    restoreSelection(keepEditor, savedSel);
+    keepEditor.suspended = false;
+  }
+
+  rebuilding = false;
+  restoreImages(container, oldImages);
+  restoreDrafts();
+  restoreEditing();
+  scrim.scrollTop = prevScroll;
+
+  const commitText = () => {
+    const title = titleInp.value.trim();
+    if (!title)
+      titleInp.value = cv.title; // boş başlık kaydedilmez
+    else if (title !== cv.title) updateCard(cardId, { title });
+    editor.commit();
+  };
+
+  const closeModal = () => {
+    commitText();
+    setState({ openCardId: null });
+  };
+  escClosers.set('card', closeModal);
+
+  scrim.addEventListener('click', e => {
+    if (e.target === scrim) closeModal();
+  });
+  container.querySelector('#modal-close-btn').addEventListener('click', closeModal);
+
+  titleInp.addEventListener('blur', () => {
+    if (!rebuilding) afterPointerUp(commitText);
+  });
+  titleInp.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      titleInp.blur();
+    }
+  });
+
+  bindDueChips(container, (key, { startAt, dueAt }) => {
+    if (key === 'card') {
+      updateCard(cardId, { startAt, dueAt });
+    } else {
+      updateChecklistItem(cardId, key, { startAt, dueAt });
+    }
+  });
+  // Tamamlandı durumu tarih ve alt görevlerden bağımsızdır
+  container.querySelector('#modal-complete-btn')?.addEventListener('click', () => {
+    if (editable) updateCard(cardId, { dueComplete: !cv.dueComplete });
+  });
+
+  container.querySelectorAll('.label-open').forEach(btn =>
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      if (editable) openLabelPicker(container.querySelector('#label-add-btn'), cardId);
+    }),
+  );
+  refreshLabelPicker();
+
+  // Seçicide yalnızca board üyeleri listelenir
+  const members = boardMembers(getActiveBoard());
+  container.querySelectorAll('.card-member-open').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      openMemberPicker(container.querySelector('#card-members-btn'), {
+        title: 'Kart üyeleri',
+        members,
+        selected: cv.assigneeIds,
+        multiple: true,
+        onChange: ids => setCardAssignees(cardId, ids),
+      });
+    });
+  });
+
+  // Alt göreve tek kişi atanır
+  container.querySelectorAll('.item-assignee').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      const itemId = btn.dataset.itemId;
+      const item = cv.checklist.find(it => it.id === itemId);
+      openMemberPicker(btn, {
+        title: 'Alt görevi ata',
+        members,
+        selected: item?.assignee ? [item.assignee.id] : [],
+        multiple: false,
+        onChange: ids => updateChecklistItem(cardId, itemId, { assignee: ids[0] || null }),
+      });
+    });
+  });
+
+  container.querySelectorAll('.checklist-check input[type="checkbox"]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      updateChecklistItem(cardId, cb.dataset.itemId, { done: cb.checked });
+    });
+  });
+
+  container.querySelectorAll('.delete-item-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      deleteChecklistItem(cardId, btn.dataset.itemId);
+    });
+  });
+
+  const addCheckItem = () => {
+    const t = (checkInp.value || '').trim();
+    if (!t) return;
+    checkInp.value = '';
+    addChecklistItem(cardId, t);
+    container.querySelector('#checklist-add-inp')?.focus();
+  };
+  container.querySelector('#checklist-add-btn').addEventListener('click', addCheckItem);
+  checkInp.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addCheckItem();
+    }
+  });
+
+  container.querySelector('#upload-btn').addEventListener('click', () => fileInput && fileInput.click());
+
+  container.querySelectorAll('.remove-attach-btn').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.preventDefault();
+      e.stopPropagation();
+      const att = cv.attachments.find(a => a.id === btn.dataset.attId);
+      const ok = await confirmDialog({
+        title: 'Dosya silinsin mi?',
+        message: `"${att?.name || ''}" karttan kaldırılacak.`,
+        confirmText: 'Sil',
+        danger: true,
+      });
+      if (ok) removeAttachment(cardId, btn.dataset.attId);
+    });
+  });
+
+  const sendComment = () => {
+    const t = (commentTa.value || '').trim();
+    if (!t) return;
+    commentTa.value = '';
+    addComment(cardId, t);
+  };
+  container.querySelector('#comment-send-btn').addEventListener('click', sendComment);
+  commentTa.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+      e.preventDefault();
+      sendComment();
+    }
+  });
+}
+
+export function renderNewBoardModal(container) {
+  if (!state.newBoardModal) {
+    escClosers.delete('newBoard');
+    container.innerHTML = '';
+    return;
+  }
+  // DOM bir kez kurulur; her state değişiminde yeniden çizmek input odağını bozar
+  if (container.querySelector('#nb-scrim')) return;
+
+  let selectedColor = BOARD_COLORS[0];
+  const emails = [];
+  let creating = false;
+
+  container.innerHTML = `
+    <div id="nb-scrim" style="position:fixed;inset:0;background:var(--scrim);z-index:900;display:flex;align-items:center;justify-content:center">
+      <div style="background:var(--surface);border-radius:14px;padding:28px 32px;width:min(420px, calc(100vw - 32px));box-sizing:border-box;box-shadow:0 20px 60px rgba(0,0,0,.25);display:flex;flex-direction:column;gap:20px">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <h2 style="font-size:16px;font-weight:700;margin:0;color:var(--text)">Yeni board</h2>
+          <button id="nb-close" style="background:none;border:none;cursor:pointer;padding:4px;color:var(--text-muted)">
+            ${CLOSE18}
+          </button>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <label for="nb-name-inp" style="font-size:12px;font-weight:600;color:var(--text-muted)">Board adı</label>
+          <input id="nb-name-inp" placeholder="Örn: Pazarlama Kampanyası" maxlength="120"
+            style="border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:14px;outline:none;background:var(--chip-bg);color:var(--text);width:100%;box-sizing:border-box">
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <label style="font-size:12px;font-weight:600;color:var(--text-muted)">Renk</label>
+          <div style="display:flex;gap:10px" id="nb-color-row">
+            ${BOARD_COLORS.map(
+              (c, i) => `
+              <button data-color="${c}" style="width:28px;height:28px;border-radius:50%;background:${c};border:${i === 0 ? '3px solid var(--text)' : '3px solid transparent'};cursor:pointer;outline:none;padding:0;transition:border .15s"></button>
+            `,
+            ).join('')}
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <label for="nb-email-inp" style="font-size:12px;font-weight:600;color:var(--text-muted)">Üye ekle <span style="font-weight:500">(isteğe bağlı)</span></label>
+          <form id="nb-email-form" class="nb-email-row" novalidate>
+            <input id="nb-email-inp" type="email" placeholder="ekip@firma.com" autocomplete="off">
+            <button type="submit">Ekle</button>
+          </form>
+          <div class="nb-email-hint">Kişinin uygulamada hesabı olması gerekir.</div>
+          <div id="nb-email-list" class="nb-email-list"></div>
+        </div>
+
+        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:4px">
+          <button id="nb-cancel" style="padding:8px 18px;border-radius:8px;border:1.5px solid var(--border);background:none;cursor:pointer;font-size:13px;font-weight:600;color:var(--text)">İptal</button>
+          <button id="nb-create" style="padding:8px 18px;border-radius:8px;border:none;background:var(--accent);color:#fff;cursor:pointer;font-size:13px;font-weight:600">Oluştur</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const close = () => {
+    escClosers.delete('newBoard');
+    container.innerHTML = '';
+    setState({ newBoardModal: false });
+  };
+  escClosers.set('newBoard', () => {
+    if (!creating) close();
+  });
+
+  container.querySelector('#nb-scrim').addEventListener('click', e => {
+    if (e.target.id === 'nb-scrim' && !creating) close();
+  });
+  container.querySelector('#nb-close').addEventListener('click', close);
+  container.querySelector('#nb-cancel').addEventListener('click', close);
+
+  // Renk ve e-posta seçimi yalnızca DOM'da tutulur
+  container.querySelectorAll('#nb-color-row [data-color]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      selectedColor = btn.dataset.color;
+      container.querySelectorAll('#nb-color-row [data-color]').forEach(b => {
+        b.style.border = b === btn ? '3px solid var(--text)' : '3px solid transparent';
+      });
+    });
+  });
+
+  const emailInp = container.querySelector('#nb-email-inp');
+  const emailList = container.querySelector('#nb-email-list');
+  const renderEmails = () => {
+    emailList.innerHTML = emails
+      .map(
+        (e, i) => `
+      <span class="nb-email-chip">${escHtml(e)}<button type="button" data-i="${i}" aria-label="${escHtml(e)} kaldır">${ICONS.x}</button></span>
+    `,
+      )
+      .join('');
+  };
+  const addEmail = () => {
+    const v = emailInp.value.trim().toLowerCase();
+    if (!v) return;
+    if (!v.includes('@')) {
+      showToast('Geçerli bir e-posta gir.', 'error');
+      emailInp.focus();
+      return;
+    }
+    if (v === (state.userEmail || '').toLowerCase()) {
+      showToast("Board'un sahibi olarak zaten üyesin.", 'error');
+      return;
+    }
+    if (!emails.includes(v)) emails.push(v);
+    emailInp.value = '';
+    renderEmails();
+    emailInp.focus();
+  };
+  container.querySelector('#nb-email-form').addEventListener('submit', e => {
+    e.preventDefault();
+    addEmail();
+  });
+  emailList.addEventListener('click', e => {
+    const btn = e.target.closest('button[data-i]');
+    if (!btn) return;
+    emails.splice(+btn.dataset.i, 1);
+    renderEmails();
+  });
+
+  const createBtn = container.querySelector('#nb-create');
+  createBtn.addEventListener('click', async () => {
+    if (creating) return;
+    const nameInp = container.querySelector('#nb-name-inp');
+    const n = (nameInp.value || '').trim();
+    if (!n) {
+      nameInp.focus();
+      return;
+    }
+    if (emailInp.value.trim()) addEmail(); // "Ekle"ye basılmamış e-posta da alınır
+
+    creating = true;
+    createBtn.disabled = true;
+    createBtn.textContent = 'Oluşturuluyor…';
+    const { ok, failedEmails } = await createBoard({ name: n, color: selectedColor, emails });
+    creating = false;
+    if (!ok) {
+      createBtn.disabled = false;
+      createBtn.textContent = 'Oluştur';
+      return;
+    }
+    close();
+    if (failedEmails.length) {
+      showToast(
+        `Board oluşturuldu, ama şu kişiler eklenemedi (kayıtlı değiller): ${failedEmails.join(', ')}`,
+        'error',
+        8000,
+      );
+    }
+  });
+
+  container.querySelector('#nb-name-inp').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.isComposing) {
+      e.preventDefault();
+      createBtn.click();
+    }
+  });
+  container.querySelector('#nb-name-inp').focus();
+}
+
+export function renderProfileModal(container) {
+  if (!state.profileOpen) {
+    escClosers.delete('profile');
+    container.innerHTML = '';
+    return;
+  }
+  // Yeni board modalı gibi bir kez kurulur
+  if (container.querySelector('#prof-scrim')) return;
+
+  const INP = `border:1.5px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13.5px;outline:none;background:var(--chip-bg);color:var(--text);width:100%;box-sizing:border-box`;
+  const LABEL = `font-size:11.5px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:3px`;
+  const SECTION = `display:flex;flex-direction:column;gap:4px`;
+  const DIVIDER = `<div style="height:1px;background:var(--border)"></div>`;
+  const me = currentUserDisplay(state);
+
+  container.innerHTML = `
+    <div id="prof-scrim" style="position:fixed;inset:0;background:var(--scrim);z-index:900;display:flex;align-items:center;justify-content:center">
+      <div style="background:var(--surface);border-radius:16px;width:min(500px, calc(100vw - 24px));max-height:90vh;overflow-y:auto;box-shadow:0 24px 72px rgba(0,0,0,.28);display:flex;flex-direction:column;animation:om-pop .26s cubic-bezier(.2,.8,.2,1)">
+
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px 10px">
+          <h2 style="font-size:16px;font-weight:700;margin:0;color:var(--text)">Hesap ve profil</h2>
+          <button id="prof-close" style="background:none;border:none;cursor:pointer;padding:4px;color:var(--text-muted)">
+            ${CLOSE20}
+          </button>
+        </div>
+
+        <div style="padding:0 20px 18px;display:flex;flex-direction:column;gap:14px">
+
+          <div style="display:flex;align-items:center;gap:14px;padding:12px 14px;background:var(--canvas);border-radius:12px">
+            <div style="position:relative;flex:0 0 auto">
+              <span id="prof-avatar" style="width:48px;height:48px;border-radius:50%;background:${cssColor(me.color)};color:#fff;font-size:17px;font-weight:700;display:flex;align-items:center;justify-content:center">${escHtml(me.initials)}</span>
+            </div>
+            <div>
+              <div id="prof-display-name" style="font-size:16px;font-weight:700;color:var(--text)">${escHtml(me.name)}</div>
+              <div id="prof-email-label" style="font-size:12.5px;color:var(--text-muted);margin-top:1px">${escHtml(state.userEmail || '')}</div>
+            </div>
+          </div>
+
+          <div style="${SECTION}">
+            <div style="font-size:13.5px;font-weight:700;color:var(--text)">Profil</div>
+            <label for="prof-name" style="${LABEL}">Ad Soyad</label>
+            <input id="prof-name" value="${escHtml(me.name)}" maxlength="80" style="${INP}">
+            <label style="${LABEL};margin-top:4px">Avatar rengi</label>
+            <div class="avatar-color-row" id="prof-color-row">
+              ${AVATAR_COLORS.map(c => `<button type="button" class="avatar-color ${c === me.color ? 'is-selected' : ''}" data-color="${c}" style="background:${c}" aria-label="Renk ${c}"></button>`).join('')}
+            </div>
+            <div id="prof-name-msg" style="font-size:12px;min-height:0"></div>
+            <button id="prof-save-profile" style="align-self:flex-end;padding:7px 16px;border-radius:8px;border:none;background:var(--accent);color:#fff;cursor:pointer;font-size:13px;font-weight:600">Kaydet</button>
+          </div>
+
+          ${DIVIDER}
+
+          <div style="${SECTION}">
+            <div style="font-size:13.5px;font-weight:700;color:var(--text)">Şifre değiştir</div>
+            <label style="${LABEL}">Mevcut şifre</label>
+            <input id="prof-pw-current" type="password" placeholder="Mevcut şifren" style="${INP}">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:4px">
+              <div><label style="${LABEL}">Yeni şifre</label><input id="prof-pw-new" type="password" placeholder="En az 8 karakter" style="${INP}"></div>
+              <div><label style="${LABEL}">Yeni şifre (tekrar)</label><input id="prof-pw-confirm" type="password" placeholder="Tekrar gir" style="${INP}"></div>
+            </div>
+            <div id="prof-pw-msg" style="font-size:12px;min-height:0"></div>
+            <button id="prof-save-pw" style="align-self:flex-end;padding:7px 16px;border-radius:8px;border:none;background:var(--accent);color:#fff;cursor:pointer;font-size:13px;font-weight:600">Şifreyi güncelle</button>
+          </div>
+
+          ${DIVIDER}
+
+          <button id="prof-logout" style="display:flex;align-items:center;justify-content:center;gap:8px;padding:9px;border-radius:10px;border:1.5px solid rgba(239,68,68,.35);background:rgba(239,68,68,.08);color:#ef4444;cursor:pointer;font-size:14px;font-weight:700;width:100%">
+            ${LOGOUT_ICON}
+            Çıkış yap
+          </button>
+
+          <div class="danger-zone">
+            <div class="danger-zone-head">
+              <div>
+                <div class="danger-zone-title">Hesabı sil</div>
+                <div class="danger-zone-desc">Hesabın ve profilin kalıcı olarak silinir. Bu işlem geri alınamaz.</div>
+              </div>
+              <button type="button" id="prof-delete-start" class="danger-btn-outline">Hesabımı sil</button>
+            </div>
+            <div id="prof-delete-confirm" class="danger-zone-confirm" hidden>
+              <ul id="prof-delete-impact" class="danger-impact"></ul>
+              <label for="prof-delete-pw" style="${LABEL};margin-top:4px">Onaylamak için şifreni gir</label>
+              <input id="prof-delete-pw" type="password" autocomplete="current-password" placeholder="Şifren" style="${INP}">
+              <div id="prof-delete-msg" style="font-size:12px;min-height:16px;color:#ef4444"></div>
+              <div style="display:flex;gap:8px;justify-content:flex-end">
+                <button type="button" id="prof-delete-cancel" class="danger-btn-cancel">Vazgeç</button>
+                <button type="button" id="prof-delete-confirm-btn" class="danger-btn">Hesabımı kalıcı olarak sil</button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  `;
+
+  const close = () => {
+    escClosers.delete('profile');
+    container.innerHTML = '';
+    setState({ profileOpen: false });
+  };
+  escClosers.set('profile', close);
+  container.querySelector('#prof-scrim').addEventListener('click', e => {
+    if (e.target.id === 'prof-scrim') close();
+  });
+  container.querySelector('#prof-close').addEventListener('click', close);
+
+  const setMsg = (el, text, ok) => {
+    el.style.color = ok ? '#10b981' : '#ef4444';
+    el.textContent = text;
+  };
+
+  const busyButton = async (btn, busyText, fn) => {
+    const label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = busyText;
+    try {
+      await fn();
+    } finally {
+      btn.disabled = false;
+      btn.textContent = label;
+    }
+  };
+
+  let pickedColor = me.color || AVATAR_COLORS[0];
+  container.querySelectorAll('#prof-color-row .avatar-color').forEach(btn =>
+    btn.addEventListener('click', () => {
+      pickedColor = btn.dataset.color;
+      container
+        .querySelectorAll('#prof-color-row .avatar-color')
+        .forEach(b => b.classList.toggle('is-selected', b === btn));
+    }),
+  );
+  container.querySelector('#prof-save-profile').addEventListener('click', async () => {
+    const nameMsg = container.querySelector('#prof-name-msg');
+    const name = container.querySelector('#prof-name').value.trim();
+    if (!name) return setMsg(nameMsg, 'Adını gir.');
+    const ok = await updateProfile({ name, color: pickedColor });
+    if (!ok) return setMsg(nameMsg, 'Kaydedilemedi.');
+    // Modal yeniden çizilmediği için üstteki ad/avatar elle güncellenir
+    const avatar = container.querySelector('#prof-avatar');
+    avatar.textContent = currentUserDisplay(state).initials;
+    avatar.style.background = pickedColor;
+    container.querySelector('#prof-display-name').textContent = name;
+    setMsg(nameMsg, 'Profil güncellendi ✓', true);
+  });
+
+  // changePassword önce mevcut şifreyi doğrular
+  const pwBtn = container.querySelector('#prof-save-pw');
+  pwBtn.addEventListener('click', () => {
+    const cur = container.querySelector('#prof-pw-current').value;
+    const nw = container.querySelector('#prof-pw-new').value;
+    const cnf = container.querySelector('#prof-pw-confirm').value;
+    const msg = container.querySelector('#prof-pw-msg');
+    if (!cur) return setMsg(msg, 'Mevcut şifreyi girin.');
+    if (nw.length < MIN_PASSWORD_LENGTH) return setMsg(msg, 'Yeni şifre en az 8 karakter olmalı.');
+    if (nw !== cnf) return setMsg(msg, 'Şifreler eşleşmiyor.');
+    busyButton(pwBtn, 'Güncelleniyor…', async () => {
+      const { error } = await changePassword(cur, nw);
+      if (error) return setMsg(msg, error);
+      setMsg(msg, 'Şifre güncellendi ✓', true);
+      container.querySelector('#prof-pw-current').value = '';
+      container.querySelector('#prof-pw-new').value = '';
+      container.querySelector('#prof-pw-confirm').value = '';
+    });
+  });
+
+  // Hesap silme iki adımlı: önce etkisi gösterilir, sonra şifreyle onaylanır
+  const deleteBox = container.querySelector('#prof-delete-confirm');
+  const deleteStart = container.querySelector('#prof-delete-start');
+  const deletePw = container.querySelector('#prof-delete-pw');
+  const deleteMsg = container.querySelector('#prof-delete-msg');
+  const deleteBtn = container.querySelector('#prof-delete-confirm-btn');
+
+  deleteStart.addEventListener('click', () => {
+    const { deleted, transferred } = accountDeletionImpact();
+    const names = list => list.map(n => `<b>${escHtml(n)}</b>`).join(', ');
+    container.querySelector('#prof-delete-impact').innerHTML = [
+      deleted.length
+        ? `<li>Sadece senin olduğun ${deleted.length} board içindeki her şeyle silinecek: ${names(deleted)}</li>`
+        : '',
+      transferred.length
+        ? `<li>Ortak ${transferred.length} board silinmeyecek, sahipliği başka bir üyeye geçecek: ${names(transferred)}</li>`
+        : '',
+      '<li>Ortak board\'lardaki yorum ve kartların kalır, yazar "Bilinmeyen" görünür.</li>',
+    ].join('');
+    deleteBox.hidden = false;
+    deleteStart.hidden = true;
+    deletePw.focus({ preventScroll: true });
+    deleteBox.scrollIntoView({ block: 'end', behavior: 'smooth' });
+  });
+
+  container.querySelector('#prof-delete-cancel').addEventListener('click', () => {
+    deleteBox.hidden = true;
+    deleteStart.hidden = false;
+    deletePw.value = '';
+    deleteMsg.textContent = '';
+  });
+
+  const confirmDelete = () => {
+    if (deleteBtn.disabled) return;
+    if (!deletePw.value) {
+      deleteMsg.textContent = 'Şifreni gir.';
+      deletePw.focus();
+      return;
+    }
+    busyButton(deleteBtn, 'Siliniyor…', async () => {
+      const res = await deleteAccount(deletePw.value);
+      if (res.error) {
+        deleteMsg.textContent = res.error;
+        return;
+      }
+      container.innerHTML = '';
+      setState({ profileOpen: false });
+      showToast('Hesabın silindi.');
+    });
+  };
+  deleteBtn.addEventListener('click', confirmDelete);
+  deletePw.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      confirmDelete();
+    }
+  });
+
+  container.querySelector('#prof-logout').addEventListener('click', async () => {
+    container.innerHTML = '';
+    setState({ profileOpen: false });
+    await signOut(); // login ekranına geçişi onAuthStateChange yapar
+  });
+}
