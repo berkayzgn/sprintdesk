@@ -6,6 +6,10 @@ dist/
 .env
 .env.local
 .env.*.local
+supabase/functions/**/.env
+# Push anahtarları (APNs .p8, Firebase servis hesabı)
+*.p8
+*firebase-adminsdk*.json
 
 .claude/
 .vscode/

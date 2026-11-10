@@ -118,15 +118,27 @@ export async function changePassword(currentPassword, newPassword) {
  * Şifreyi doğrulayıp hesabı kalıcı olarak siler.
  * @returns {{ error?: string, deletedBoards?: number, transferredBoards?: number }}
  */
+const LAST_ADMIN = 'Son yönetici sensin: önce başka birini yönetici yap, sonra hesabını sil.';
+
+/** Sistemde başka (askıda olmayan) yönetici yoksa true. Asıl kontrol delete_my_account'ta. */
+async function isLastAdmin() {
+  if (!state.isAdmin) return false;
+  const { data, error } = await supabase.rpc('list_directory');
+  if (error || !data) return false; // emin değilsek sunucu karar versin
+  return !data.some(p => p.is_admin && p.id !== state.userId);
+}
+
 export async function deleteAccount(password) {
   const verifyError = await verifyPassword(password, 'Şifre hatalı.');
   if (verifyError) return { error: verifyError };
 
+  // Dosyalar silinmeden önce: sunucu son yöneticiyi reddedecekse board dosyaları boşuna gitmesin
+  if (await isLastAdmin()) return { error: LAST_ADMIN };
   await removeFilesOfBoardsDeletedWithAccount();
   const { data, error } = await supabase.rpc('delete_my_account');
   if (error) {
     console.error('[auth] hesap silinemedi', error);
-    return { error: 'Hesap silinemedi, tekrar dene.' };
+    return { error: error.code === '42501' && error.message ? error.message : 'Hesap silinemedi, tekrar dene.' };
   }
 
   // Kullanıcı sunucudan silindi; yalnızca yerel oturum temizlenir

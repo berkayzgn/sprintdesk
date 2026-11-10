@@ -384,6 +384,10 @@ deno_version = 2
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
+# Push: trigger (pg_net) JWT göndermez, istek x-push-secret ile doğrulanır
+[functions.send-push]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327
